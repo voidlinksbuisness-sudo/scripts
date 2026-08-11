@@ -94,7 +94,7 @@ RunService.RenderStepped:Connect(function()
 		and myCharacter:FindFirstChildOfClass("Humanoid")
 
 	if myHumanoid and myHumanoid.Health > 0 then
-		myHealthText.Text = "+ " .. math.floor(myHumanoid.Health).." | "..(math.floor(myHumanoid.Health/myHumanoid.MaxHealth)*100).."%"
+		myHealthText.Text = "+ " .. math.floor(myHumanoid.Health)
 
 		myHealthText.Position = Vector2.new(
 			viewport.X / 2,
@@ -169,7 +169,7 @@ RunService.RenderStepped:Connect(function()
 							screenPosition.Y
 						)
 
-						text.Text = "+ " .. math.floor(Humanoid.Health).." | "..(math.floor(Humanoid.Health/Humanoid.MaxHealth)*100).."%"
+						text.Text = "+ " .. math.floor(humanoid.Health)
 
 						visible = true
 					end
