@@ -1,4 +1,4 @@
--- FFTM_MAIN_BUILD = "2026-08-13-PRESETS-2-UNIQUE"
+-- FFTM_MAIN_BUILD = "2026-08-13-KEYBINDS-1"
 --// WABI SABI UI
 loadstring(game:HttpGet("https://scripts.wabisabi.mom/wabi-sabi-ui-lib.lua"))()
 
@@ -404,7 +404,7 @@ end
 -- WABI SABI CONTROLS
 --==================================================
 
-Main:AddToggle({
+local UIToggleESP = Main:AddToggle({
     Id = "esp",
     Title = "ESP",
     Default = false,
@@ -415,7 +415,7 @@ Main:AddToggle({
     end
 })
 
-Main:AddToggle({
+local UIToggleTracers = Main:AddToggle({
     Id = "tracers",
     Title = "Tracers",
     Default = false,
@@ -441,7 +441,7 @@ Main:AddSlider({
 
 --// PLAYER HEALTH
 
-Main:AddToggle({
+local UITogglePlayerHealth = Main:AddToggle({
     Id = "player_health",
     Title = "Player Health",
     Default = false,
@@ -454,7 +454,7 @@ Main:AddToggle({
 
 --// SELF HEALTH
 
-Main:AddToggle({
+local UIToggleSelfHealth = Main:AddToggle({
     Id = "self_health",
     Title = "Self Health",
     Default = false,
@@ -587,7 +587,7 @@ local TargetingTab   = SafeAddTab("Targeting", "crosshair")
 local ParryConfigTab = SafeAddTab("Parry Config", "settings")
 local ConfigTab      = SafeAddTab("Config", "settings")
 
-SafeAddToggle(AutoParryTab, {
+local UIToggleAutoParry = SafeAddToggle(AutoParryTab, {
     Id = "auto_parry",
     Title = "Auto Parry",
     Default = true,
@@ -596,7 +596,7 @@ SafeAddToggle(AutoParryTab, {
     end
 })
 
-SafeAddToggle(AutoParryTab, {
+local UIToggleAutoDodge = SafeAddToggle(AutoParryTab, {
     Id = "auto_dodge",
     Title = "Auto Dodge / Heavy",
     Default = true,
@@ -605,7 +605,7 @@ SafeAddToggle(AutoParryTab, {
     end
 })
 
-SafeAddToggle(AutoParryTab, {
+local UIToggleAutoPlay = SafeAddToggle(AutoParryTab, {
     Id = "auto_play",
     Title = "Auto Play",
     Default = true,
@@ -614,7 +614,7 @@ SafeAddToggle(AutoParryTab, {
     end
 })
 
-SafeAddToggle(AutoParryTab, {
+local UIToggleParryDebug = SafeAddToggle(AutoParryTab, {
     Id = "parry_debug",
     Title = "Debug Parry",
     Default = false,
@@ -623,7 +623,7 @@ SafeAddToggle(AutoParryTab, {
     end
 })
 
-SafeAddToggle(TargetingTab, {
+local UIToggleAutoTargetNearest = SafeAddToggle(TargetingTab, {
     Id = "auto_target_nearest",
     Title = "Auto Target Nearest",
     Default = false,
@@ -632,7 +632,7 @@ SafeAddToggle(TargetingTab, {
     end
 })
 
-SafeAddToggle(TargetingTab, {
+local UIToggleMultipleTargets = SafeAddToggle(TargetingTab, {
     Id = "multiple_targets",
     Title = "Multiple Targets",
     Default = true,
@@ -641,7 +641,7 @@ SafeAddToggle(TargetingTab, {
     end
 })
 
-SafeAddToggle(TargetingTab, {
+local UIToggleIncludeLocalCharacter = SafeAddToggle(TargetingTab, {
     Id = "include_local_character",
     Title = "Include Local Character",
     Default = false,
@@ -650,7 +650,7 @@ SafeAddToggle(TargetingTab, {
     end
 })
 
-SafeAddToggle(TargetingTab, {
+local UIToggleTargetFacingYou = SafeAddToggle(TargetingTab, {
     Id = "target_facing_you",
     Title = "Target Facing You",
     Default = false,
@@ -659,7 +659,7 @@ SafeAddToggle(TargetingTab, {
     end
 })
 
-SafeAddToggle(TargetingTab, {
+local UIToggleYouFacingTarget = SafeAddToggle(TargetingTab, {
     Id = "you_facing_target",
     Title = "You Facing Target",
     Default = true,
@@ -668,7 +668,7 @@ SafeAddToggle(TargetingTab, {
     end
 })
 
-SafeAddToggle(ParryConfigTab, {
+local UIToggleHeightMultiplier = SafeAddToggle(ParryConfigTab, {
     Id = "height_multiplier",
     Title = "Height Multiplier",
     Default = true,
@@ -677,7 +677,7 @@ SafeAddToggle(ParryConfigTab, {
     end
 })
 
-SafeAddToggle(ParryConfigTab, {
+local UITogglePingCompensation = SafeAddToggle(ParryConfigTab, {
     Id = "ping_compensation",
     Title = "Ping Compensation",
     Default = true,
@@ -2203,6 +2203,210 @@ SafeAddSlider(TargetingTab, {
 
 
 --==================================================
+-- TOGGLE KEYBINDS
+--==================================================
+
+local ToggleKeybinds = {
+    ESP = "None",
+    Tracers = "None",
+    PlayerHealth = "None",
+    SelfHealth = "None",
+
+    AutoParry = "None",
+    AutoDodge = "None",
+    AutoPlay = "None",
+    ParryDebug = "None",
+
+    AutoTargetNearest = "None",
+    MultipleTargets = "None",
+    IncludeLocalCharacter = "None",
+    TargetFacingYou = "None",
+    YouFacingTarget = "None",
+
+    HeightMultiplier = "None",
+    PingCompensation = "None",
+}
+
+local KeybindOptions = {
+    "None",
+
+    "Q", "E", "R", "T", "Y", "U", "I", "O", "P",
+    "G", "H", "J", "K", "L",
+    "Z", "C", "V", "B", "N", "M",
+
+    "One", "Two", "Three", "Four", "Five",
+    "Six", "Seven", "Eight", "Nine", "Zero",
+
+    "F1", "F2", "F3", "F4", "F5", "F6",
+    "F7", "F8", "F9", "F10", "F11", "F12",
+
+    "LeftShift", "RightShift",
+    "LeftControl", "RightControl",
+    "LeftAlt", "RightAlt",
+    "Insert", "Home", "End",
+    "PageUp", "PageDown",
+}
+
+local function SetUIToggle(control, value)
+    if control ~= nil and type(control.Set) == "function" then
+        local ok = pcall(function()
+            control:Set(value)
+        end)
+
+        if ok then
+            return true
+        end
+    end
+
+    return false
+end
+
+local function ToggleMainState(stateKey, uiControl)
+    local newValue = not (state[stateKey] == true)
+    state[stateKey] = newValue
+
+    SetUIToggle(uiControl, newValue)
+
+    if stateKey == "ESP" and not newValue then
+        hidePoolFrom(espBoxes, 1)
+    elseif stateKey == "Tracers" and not newValue then
+        hidePoolFrom(tracerLines, 1)
+    elseif stateKey == "PlayerHealth" and not newValue then
+        hidePoolFrom(healthTexts, 1)
+    elseif stateKey == "SelfHealth" and not newValue then
+        myHealthText.Visible = false
+    end
+end
+
+local function ToggleValueControl(valueControl, uiControl)
+    local oldValue = valueControl.Get()
+    local newValue = not (oldValue == true)
+
+    valueControl.Set(newValue)
+    SetUIToggle(uiControl, newValue)
+end
+
+local function ToggleIncludeLocal()
+    IncludeLocalCharacter = not IncludeLocalCharacter
+    SetUIToggle(UIToggleIncludeLocalCharacter, IncludeLocalCharacter)
+end
+
+local ToggleKeybindActions = {
+    ESP = function()
+        ToggleMainState("ESP", UIToggleESP)
+    end,
+
+    Tracers = function()
+        ToggleMainState("Tracers", UIToggleTracers)
+    end,
+
+    PlayerHealth = function()
+        ToggleMainState("PlayerHealth", UITogglePlayerHealth)
+    end,
+
+    SelfHealth = function()
+        ToggleMainState("SelfHealth", UIToggleSelfHealth)
+    end,
+
+    AutoParry = function()
+        ToggleValueControl(AutoParryToggle, UIToggleAutoParry)
+    end,
+
+    AutoDodge = function()
+        ToggleValueControl(AutoDodgeToggle, UIToggleAutoDodge)
+    end,
+
+    AutoPlay = function()
+        ToggleValueControl(AutoPlayToggle, UIToggleAutoPlay)
+    end,
+
+    ParryDebug = function()
+        ToggleValueControl(ParryDebugToggle, UIToggleParryDebug)
+    end,
+
+    AutoTargetNearest = function()
+        ToggleValueControl(AutoTargetNearest, UIToggleAutoTargetNearest)
+    end,
+
+    MultipleTargets = function()
+        ToggleValueControl(MultiTarget, UIToggleMultipleTargets)
+    end,
+
+    IncludeLocalCharacter = function()
+        ToggleIncludeLocal()
+    end,
+
+    TargetFacingYou = function()
+        ToggleValueControl(TargetFacingYou, UIToggleTargetFacingYou)
+    end,
+
+    YouFacingTarget = function()
+        ToggleValueControl(YouFacingTarget, UIToggleYouFacingTarget)
+    end,
+
+    HeightMultiplier = function()
+        ToggleValueControl(HeightToggle, UIToggleHeightMultiplier)
+    end,
+
+    PingCompensation = function()
+        ToggleValueControl(PingCompensateToggle, UITogglePingCompensation)
+    end,
+}
+
+local function KeyCodeName(input)
+    if input == nil or input.KeyCode == nil then
+        return nil
+    end
+
+    local ok, name = pcall(function()
+        return input.KeyCode.Name
+    end)
+
+    if ok then
+        return name
+    end
+
+    return nil
+end
+
+local function ProcessToggleKeybind(input)
+    local pressedName = KeyCodeName(input)
+
+    if pressedName == nil or pressedName == "Unknown" then
+        return false
+    end
+
+    local triggered = false
+
+    for actionName, keyName in pairs(ToggleKeybinds) do
+        if keyName ~= "None" and keyName == pressedName then
+            local action = ToggleKeybindActions[actionName]
+
+            if type(action) == "function" then
+                action()
+                triggered = true
+            end
+        end
+    end
+
+    return triggered
+end
+
+local function AddKeybindDropdown(id, title, actionName)
+    SafeAddDropdown(ConfigTab, {
+        Id = id,
+        Title = title,
+        Options = KeybindOptions,
+        Default = ToggleKeybinds[actionName],
+
+        Callback = function(value)
+            ToggleKeybinds[actionName] = value
+            print("[Keybind] " .. title .. " -> " .. tostring(value))
+        end
+    })
+end
+
+--==================================================
 -- CONFIG / SAVED PRESETS
 --==================================================
 
@@ -2330,6 +2534,27 @@ local function CapturePreset()
         },
 
         AnimationTimings = CopyAnimationTimings(),
+
+        Keybinds = {
+            ESP = ToggleKeybinds.ESP,
+            Tracers = ToggleKeybinds.Tracers,
+            PlayerHealth = ToggleKeybinds.PlayerHealth,
+            SelfHealth = ToggleKeybinds.SelfHealth,
+
+            AutoParry = ToggleKeybinds.AutoParry,
+            AutoDodge = ToggleKeybinds.AutoDodge,
+            AutoPlay = ToggleKeybinds.AutoPlay,
+            ParryDebug = ToggleKeybinds.ParryDebug,
+
+            AutoTargetNearest = ToggleKeybinds.AutoTargetNearest,
+            MultipleTargets = ToggleKeybinds.MultipleTargets,
+            IncludeLocalCharacter = ToggleKeybinds.IncludeLocalCharacter,
+            TargetFacingYou = ToggleKeybinds.TargetFacingYou,
+            YouFacingTarget = ToggleKeybinds.YouFacingTarget,
+
+            HeightMultiplier = ToggleKeybinds.HeightMultiplier,
+            PingCompensation = ToggleKeybinds.PingCompensation,
+        },
     }
 end
 
@@ -2475,6 +2700,16 @@ local function ApplyPreset(preset)
 
     ApplyAnimationTimings(preset.AnimationTimings)
 
+    if type(preset.Keybinds) == "table" then
+        for actionName, keyName in pairs(preset.Keybinds) do
+            if ToggleKeybinds[actionName] ~= nil
+                and type(keyName) == "string" then
+
+                ToggleKeybinds[actionName] = keyName
+            end
+        end
+    end
+
     return true
 end
 
@@ -2494,6 +2729,60 @@ SafeAddDropdown(ConfigTab, {
         SelectedPresetSlot = value
     end
 })
+
+
+-- Toggle keybinds
+AddKeybindDropdown("kb_esp", "ESP Key", "ESP")
+AddKeybindDropdown("kb_tracers", "Tracers Key", "Tracers")
+AddKeybindDropdown("kb_player_health", "Player Health Key", "PlayerHealth")
+AddKeybindDropdown("kb_self_health", "Self Health Key", "SelfHealth")
+
+AddKeybindDropdown("kb_auto_parry", "Auto Parry Key", "AutoParry")
+AddKeybindDropdown("kb_auto_dodge", "Auto Dodge Key", "AutoDodge")
+AddKeybindDropdown("kb_auto_play", "Auto Play Key", "AutoPlay")
+AddKeybindDropdown("kb_parry_debug", "Debug Parry Key", "ParryDebug")
+
+AddKeybindDropdown(
+    "kb_auto_target",
+    "Auto Target Key",
+    "AutoTargetNearest"
+)
+
+AddKeybindDropdown(
+    "kb_multi_target",
+    "Multiple Targets Key",
+    "MultipleTargets"
+)
+
+AddKeybindDropdown(
+    "kb_include_local",
+    "Include Local Key",
+    "IncludeLocalCharacter"
+)
+
+AddKeybindDropdown(
+    "kb_target_facing",
+    "Target Facing You Key",
+    "TargetFacingYou"
+)
+
+AddKeybindDropdown(
+    "kb_you_facing",
+    "You Facing Target Key",
+    "YouFacingTarget"
+)
+
+AddKeybindDropdown(
+    "kb_height",
+    "Height Multiplier Key",
+    "HeightMultiplier"
+)
+
+AddKeybindDropdown(
+    "kb_ping",
+    "Ping Compensation Key",
+    "PingCompensation"
+)
 
 SafeAddButton(ConfigTab, {
     Title = "Save Selected Preset",
@@ -2651,6 +2940,10 @@ UIS.InputBegan:Connect(function(input, gameProcessed)
     
     local RhythmServiceUI = game.Players.LocalPlayer.PlayerGui:FindFirstChild("RhythmServiceUI")
     if RhythmServiceUI then return end
+
+    if ProcessToggleKeybind(input) then
+        return
+    end
 
     if input.KeyCode == CycleKeybind then
         CycleEvent()
