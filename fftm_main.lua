@@ -533,7 +533,15 @@ local PingCompensateToggle = NewValueControl(true)
 local AutoPlayToggle       = NewValueControl(true)
 
 -- Dependencies are preloaded by loader.lua.
-local HitboxVisualizer = _G.HitboxVisualizer
+local FFTM_BOOTSTRAP = ...
+
+if type(FFTM_BOOTSTRAP) ~= "table" then
+    error("[FFTM] Main was started without the loader dependency table.")
+end
+
+local HitboxVisualizer = FFTM_BOOTSTRAP.HitboxVisualizer
+
+print("[FFTM] Main bootstrap dependencies accepted.")
 
 -- Extra tabs keep the original Wabi Sabi look.
 -- All UI calls are guarded so a bad tab object cannot stop the script.
@@ -604,7 +612,7 @@ local HitboxesTab    = SafeAddTab("Hitboxes", "box")
 -- HITBOX VISUALIZER CONTROLS
 --==================================================
 
-if not HitboxVisualizer or type(HitboxVisualizer) ~= "table" then
+if type(HitboxVisualizer) ~= "table" then
     warn("[Hitboxes] Module did not return a table; hitbox controls disabled.")
 else
 
@@ -735,51 +743,22 @@ SafeAddToggle(ParryConfigTab, {
     end
 })
 
-local FFTM_URLS = _G.FFTM_URLS or {}
+-- Dependencies are downloaded once by loader.lua and passed directly into this chunk.
+-- This avoids relying on _G/getgenv across isolated Matcha loadstring environments.
+local AnimationTrackerClass = FFTM_BOOTSTRAP.AnimationTrackerClass
+local ESP_Utility = FFTM_BOOTSTRAP.ESP_Utility
 
-local function LoadURL(name, url)
-    if not url or url == "" then
-        error("[FFTM] Missing URL for " .. name)
-    end
-
-    local ok, source = pcall(function()
-        return game:HttpGet(url)
-    end)
-
-    if not ok then
-        error("[FFTM] Failed to download " .. name .. ": " .. tostring(source))
-    end
-
-    local chunk, compileError = loadstring(source)
-
-    if not chunk then
-        error("[FFTM] Failed to compile " .. name .. ": " .. tostring(compileError))
-    end
-
-    local runOk, result = pcall(chunk)
-
-    if not runOk then
-        error("[FFTM] " .. name .. " crashed: " .. tostring(result))
-    end
-
-    return result
+if type(AnimationTrackerClass) ~= "table" or type(AnimationTrackerClass.new) ~= "function" then
+    error("[FFTM] AnimationTracker dependency is missing or invalid.")
 end
 
-local AnimationTrackerClass =
-    _G.AnimationTrackerClass
-    or LoadURL("AnimationTracker", FFTM_URLS.AnimationTracker)
-
-local ESP_Utility =
-    _G.ESP_Utility
-    or LoadURL("ESP Utility", FFTM_URLS.ESPUtility)
-
-if not HitboxVisualizer then
-    HitboxVisualizer = LoadURL(
-        "Hitbox Visualizer",
-        FFTM_URLS.HitboxVisualizer
-    )
+if type(ESP_Utility) ~= "table" or type(ESP_Utility.NewTracker) ~= "function" then
+    error("[FFTM] ESP Utility dependency is missing or invalid.")
 end
 
+if type(HitboxVisualizer) ~= "table" then
+    warn("[FFTM] Hitbox visualizer dependency is unavailable; Hitboxes UI will be disabled.")
+end
 
 local AnimationsLoggedCache = {}
 local AnimationsLoggedOrder = {}
@@ -791,9 +770,11 @@ local AnimationsLoggedOrder = {}
 
 local GameName = "Gakuran"
 
-local GameConfig =
-    _G.GameConfig
-    or LoadURL("Game Config", FFTM_URLS.GameConfig)
+local GameConfig = FFTM_BOOTSTRAP.GameConfig
+
+if type(GameConfig) ~= "table" then
+    error("[FFTM] GameConfig dependency did not return a table.")
+end
 
 local IgnoreIds = {
 73766443218740,111699625251889,85823794654077,99661732639863,106268941365574,109816855387997,122561749929324,129805948180599,
