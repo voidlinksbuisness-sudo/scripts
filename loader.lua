@@ -1,21 +1,17 @@
--- FFTM Matcha single-chunk loader
--- All remote Lua sources are combined and executed in ONE loadstring chunk.
+-- FFTM Matcha loader - no hitbox visualizer
+print("[FFTM] Loader build: 2026-08-13-MATCHA-PRESETS-FIX-2")
 
 local URLS = {
     AnimationTracker = "https://raw.githubusercontent.com/voidlinksbuisness-sudo/scripts/refs/heads/main/animationtracker(1).lua",
     ESPUtility = "https://raw.githubusercontent.com/voidlinksbuisness-sudo/scripts/refs/heads/main/esp_utility(1).lua",
     GameConfig = "https://raw.githubusercontent.com/voidlinksbuisness-sudo/scripts/refs/heads/main/game_config.lua",
-    HitboxVisualizer = "https://raw.githubusercontent.com/voidlinksbuisness-sudo/scripts/refs/heads/main/visual%20box",
     Main = "https://raw.githubusercontent.com/voidlinksbuisness-sudo/scripts/refs/heads/main/fftm_main.lua",
 }
 
 local function FetchSource(name, url)
-    if type(url) ~= "string" or url == "" then
-        error("[FFTM Loader] Missing URL for " .. tostring(name))
-    end
-
     local separator = string.find(url, "?", 1, true) and "&" or "?"
-    local requestUrl = url
+    local requestUrl =
+        url
         .. separator
         .. "fftm_cb="
         .. tostring(os.time())
@@ -27,55 +23,101 @@ local function FetchSource(name, url)
     end)
 
     if not ok then
-        error("[FFTM Loader] Failed to download " .. name .. ": " .. tostring(source))
+        warn("[FFTM Loader] Failed to download " .. name .. ": " .. tostring(source))
+        return nil
     end
 
     if type(source) ~= "string" or source == "" then
-        error("[FFTM Loader] Empty response for " .. name)
+        warn("[FFTM Loader] Empty response for " .. name)
+        return nil
     end
 
-    if source:match("^%s*404") or source:find("404: Not Found", 1, true) then
-        error("[FFTM Loader] URL returned 404 for " .. name .. ": " .. url)
+    if source:match("^%s*404")
+        or source:find("404: Not Found", 1, true) then
+
+        warn("[FFTM Loader] URL returned 404 for " .. name)
+        return nil
     end
 
     print("[FFTM] Downloaded " .. name)
     return source
 end
 
-local animationSource = FetchSource("AnimationTracker", URLS.AnimationTracker)
-local espSource = FetchSource("ESP Utility", URLS.ESPUtility)
-local gameConfigSource = FetchSource("Game Config", URLS.GameConfig)
-local hitboxSource = FetchSource("Hitbox Visualizer", URLS.HitboxVisualizer)
-local mainSource = FetchSource("Main", URLS.Main)
+local animationSource =
+    FetchSource("AnimationTracker", URLS.AnimationTracker)
 
+if animationSource == nil then
+    return
+end
+
+local espSource =
+    FetchSource("ESP Utility", URLS.ESPUtility)
+
+if espSource == nil then
+    return
+end
+
+local gameConfigSource =
+    FetchSource("Game Config", URLS.GameConfig)
+
+if gameConfigSource == nil then
+    return
+end
+
+local mainSource =
+    FetchSource("Main", URLS.Main)
+
+if mainSource == nil then
+    return
+end
+
+-- Matcha does not reliably preserve return values/globals between separate
+-- loadstring chunks. Put all three modules and main into ONE compiled chunk.
+--
+-- Each dependency gets its own function scope so its `return` works normally.
+-- Main also gets its own named function scope to avoid Matcha's local-register
+-- limit and the ambiguous-IIFE parser issue.
 local compositeSource =
     "local AnimationTrackerClass = (function()\n"
     .. animationSource
     .. "\nend)()\n\n"
+
     .. "local ESP_Utility = (function()\n"
     .. espSource
     .. "\nend)()\n\n"
+
     .. "local GameConfig = (function()\n"
     .. gameConfigSource
     .. "\nend)()\n\n"
-    .. "local HitboxVisualizer = (function()\n"
-    .. hitboxSource
-    .. "\nend)()\n\n"
-    .. "-- ===== FFTM MAIN =====\n"
+
+    .. "local function __FFTM_RUN_MAIN()\n"
     .. mainSource
+    .. "\nend\n\n"
 
-print("[FFTM] Compiling single-chunk build...")
+    .. "__FFTM_RUN_MAIN()\n"
 
-local chunk, compileError = loadstring(compositeSource)
+print("[FFTM] Compiling single-chunk core (hitbox visualizer removed)...")
+
+local chunk, compileError =
+    loadstring(compositeSource)
 
 if not chunk then
-    error("[FFTM Loader] Combined compile failed: " .. tostring(compileError))
+    warn(
+        "[FFTM Loader] Compile failed: "
+        .. tostring(compileError)
+    )
+    return
 end
 
-local ok, runError = pcall(chunk)
+local ok, runError =
+    pcall(chunk)
 
 if not ok then
-    error("[FFTM Loader] Combined runtime failed: " .. tostring(runError))
+    warn(
+        "[FFTM Loader] Runtime failed: "
+        .. tostring(runError)
+    )
+    return
 end
 
-print("[FFTM] Single-chunk build loaded successfully.")
+print("[FFTM] Full build loaded successfully.")
