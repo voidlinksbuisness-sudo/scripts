@@ -10,17 +10,6 @@ local RUNNING = true
 local MAX_DISTANCE = 20
 local MAX_MATCH_DISTANCE = 10
 
-local CORNERS = {
-    Vector3.new(-1, -1, -1),
-    Vector3.new(1, -1, -1),
-    Vector3.new(1, 1, -1),
-    Vector3.new(-1, 1, -1),
-    Vector3.new(-1, -1, 1),
-    Vector3.new(1, -1, 1),
-    Vector3.new(1, 1, 1),
-    Vector3.new(-1, 1, 1)
-}
-
 local EDGES = {
     {1,2},{2,3},{3,4},{4,1},
     {5,6},{6,7},{7,8},{8,5},
@@ -31,6 +20,20 @@ local latched = {}
 local seen = {}
 local lastFolderState = nil
 local lastDebugPrint = 0
+
+local function vector3(x, y, z)
+    -- Matcha-safe constructor resolution.
+    if Vector3 ~= nil and type(Vector3.new) == "function" then
+        return Vector3.new(x, y, z)
+    end
+
+    -- Some Matcha builds expose lowercase constructor helpers.
+    if vec3 ~= nil and type(vec3) == "function" then
+        return vec3(x, y, z)
+    end
+
+    error("[StickyHitboxes V9] No Vector3 constructor is available in this scope")
+end
 
 local function getCharacterData(player)
     if player == nil then
@@ -138,7 +141,7 @@ local function clearAll()
         i = i + 1
     end
 
-    print("[StickyHitboxes V8] Cleared all sticky boxes")
+    print("[StickyHitboxes V9] Cleared all sticky boxes")
 end
 
 local function findPlayerFromOwner(hitbox)
@@ -214,7 +217,7 @@ local function findTarget(hitbox)
         if ownerCharacter ~= nil then
             local _, ownerPart = nearestBodyPartDistance(ownerCharacter, hitbox.Position)
 
-            print("[StickyHitboxes V8] Matched by Owner -> " .. tostring(ownerPlayer.Name))
+            print("[StickyHitboxes V9] Matched by Owner -> " .. tostring(ownerPlayer.Name))
             return ownerPlayer, ownerPart
         end
 
@@ -270,7 +273,7 @@ local function findTarget(hitbox)
 
         if bestDistance <= allowedDistance then
             print(
-                "[StickyHitboxes V8] Matched nearest -> "
+                "[StickyHitboxes V9] Matched nearest -> "
                 .. tostring(bestPlayer.Name)
                 .. " | part="
                 .. tostring(bestPartName)
@@ -293,7 +296,7 @@ local function findTarget(hitbox)
         end
 
         print(
-            "[StickyHitboxes V8] Closest was "
+            "[StickyHitboxes V9] Closest was "
             .. tostring(bestPlayer.Name)
             .. " at "
             .. tostring(math.floor(bestDistance * 100) / 100)
@@ -349,7 +352,7 @@ local function latchPlayer(player, hitbox, matchedPart)
     }
 
     print(
-        "[StickyHitboxes V8] LATCHED TO BODY -> "
+        "[StickyHitboxes V9] LATCHED TO BODY -> "
         .. tostring(player.Name)
         .. " | part="
         .. tostring(targetPart.Name)
@@ -359,42 +362,27 @@ local function latchPlayer(player, hitbox, matchedPart)
 end
 
 local function getWorldCorners(center, size)
-    local half = size * 0.5
+    local hx = size.X * 0.5
+    local hy = size.Y * 0.5
+    local hz = size.Z * 0.5
+
+    local cx = center.X
+    local cy = center.Y
+    local cz = center.Z
+
     local result = {}
 
-    local i = 1
+    result[1] = vector3(cx - hx, cy - hy, cz - hz)
+    result[2] = vector3(cx + hx, cy - hy, cz - hz)
+    result[3] = vector3(cx + hx, cy + hy, cz - hz)
+    result[4] = vector3(cx - hx, cy + hy, cz - hz)
 
-    while i <= #CORNERS do
-        local sign = CORNERS[i]
-
-        result[i] = Vector3.new(
-            center.X + sign.X * half.X,
-            center.Y + sign.Y * half.Y,
-            center.Z + sign.Z * half.Z
-        )
-
-        i = i + 1
-    end
+    result[5] = vector3(cx - hx, cy - hy, cz + hz)
+    result[6] = vector3(cx + hx, cy - hy, cz + hz)
+    result[7] = vector3(cx + hx, cy + hy, cz + hz)
+    result[8] = vector3(cx - hx, cy + hy, cz + hz)
 
     return result
-end
-
-local function getBodyAnchor(character, root)
-    local part = character:FindFirstChild("UpperTorso")
-
-    if part == nil then
-        part = character:FindFirstChild("Torso")
-    end
-
-    if part == nil then
-        part = root
-    end
-
-    if part == nil then
-        return nil
-    end
-
-    return part.Position, part
 end
 
 local function updateLatch(player, data)
@@ -469,7 +457,7 @@ local function updateLatch(player, data)
         end
     end
 
-    local topWorld = Vector3.new(
+    local topWorld = vector3(
         center.X,
         center.Y + labelHeight * 0.5 + 0.8,
         center.Z
@@ -516,7 +504,7 @@ local function processHitboxes()
 
     if folder == nil then
         if lastFolderState ~= false then
-            print("[StickyHitboxes V8] workspace.Hitboxes NOT FOUND")
+            print("[StickyHitboxes V9] workspace.Hitboxes NOT FOUND")
             lastFolderState = false
         end
 
@@ -524,7 +512,7 @@ local function processHitboxes()
     end
 
     if lastFolderState ~= true then
-        print("[StickyHitboxes V8] workspace.Hitboxes FOUND")
+        print("[StickyHitboxes V9] workspace.Hitboxes FOUND")
         lastFolderState = true
     end
 
@@ -549,7 +537,7 @@ local function processHitboxes()
                 seen[key] = true
 
                 print(
-                    "[StickyHitboxes V8] New temporary hitbox | pos="
+                    "[StickyHitboxes V9] New temporary hitbox | pos="
                     .. tostring(hitbox.Position)
                     .. " | size="
                     .. tostring(hitbox.Size)
@@ -612,7 +600,7 @@ task.spawn(function()
             end)
 
             if not ok then
-                warn("[StickyHitboxes V8] " .. tostring(err))
+                warn("[StickyHitboxes V9] " .. tostring(err))
             end
         end
     end
@@ -635,7 +623,7 @@ function StickyHitboxes.SetDetectionDistance(value)
 
     if numberValue ~= nil and numberValue > 0 then
         MAX_DISTANCE = numberValue
-        print("[StickyHitboxes V8] Detection range -> " .. tostring(MAX_DISTANCE))
+        print("[StickyHitboxes V9] Detection range -> " .. tostring(MAX_DISTANCE))
     end
 end
 
@@ -667,8 +655,8 @@ function StickyHitboxes.Destroy()
     clearAll()
 end
 
-print("[StickyHitboxes V8] MATCHA BODY-ANCHOR BUILD LOADED")
-print("[StickyHitboxes V8] Detection range = 20 studs")
-print("[StickyHitboxes V8] One newest box per player; follows torso/root")
+print("[StickyHitboxes V9] MATCHA CONSTRUCTOR-SAFE BUILD LOADED")
+print("[StickyHitboxes V9] Detection range = 20 studs")
+print("[StickyHitboxes V9] One newest box per player; follows torso/root")
 
 return StickyHitboxes
