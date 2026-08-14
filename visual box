@@ -15,6 +15,73 @@ local latched = {}
 local seen = {}
 local lastFolderState = nil
 
+local function getXYZ(value)
+    if value == nil then
+        return nil, nil, nil
+    end
+
+    local ok, x, y, z = pcall(function()
+        return value.X, value.Y, value.Z
+    end)
+
+    if not ok then
+        return nil, nil, nil
+    end
+
+    if type(x) ~= "number" or type(y) ~= "number" or type(z) ~= "number" then
+        return nil, nil, nil
+    end
+
+    return x, y, z
+end
+
+local function safeDistance(a, b)
+    local ax, ay, az = getXYZ(a)
+    local bx, by, bz = getXYZ(b)
+
+    if ax == nil or bx == nil then
+        return nil
+    end
+
+    local dx = ax - bx
+    local dy = ay - by
+    local dz = az - bz
+
+    return math.sqrt(dx * dx + dy * dy + dz * dz)
+end
+
+local function safeMagnitude(value)
+    local x, y, z = getXYZ(value)
+
+    if x == nil then
+        return nil
+    end
+
+    return math.sqrt(x * x + y * y + z * z)
+end
+
+local function safePosition(object)
+    if object == nil then
+        return nil
+    end
+
+    local ok, value = pcall(function()
+        return object.Position
+    end)
+
+    if not ok then
+        return nil
+    end
+
+    local x = getXYZ(value)
+
+    if x == nil then
+        return nil
+    end
+
+    return value
+end
+
 local function getCharacterData(player)
     if player == nil then
         return nil, nil, nil
@@ -124,10 +191,14 @@ local function clearAll()
         i = i + 1
     end
 
-    print("[StickyHitboxes V10] Cleared")
+    print("[StickyHitboxes V11] Cleared")
 end
 
 local function nearestBodyPartDistance(character, hitboxPosition)
+    if getXYZ(hitboxPosition) == nil then
+        return math.huge, nil
+    end
+
     local children = character:GetChildren()
     local bestDistance = math.huge
     local bestPart = nil
@@ -138,11 +209,18 @@ local function nearestBodyPartDistance(character, hitboxPosition)
         local child = children[i]
 
         if child:IsA("BasePart") then
-            local distance = (child.Position - hitboxPosition).Magnitude
+            local childPosition = safePosition(child)
 
-            if distance < bestDistance then
-                bestDistance = distance
-                bestPart = child
+            if childPosition ~= nil then
+                local distance = safeDistance(
+                    childPosition,
+                    hitboxPosition
+                )
+
+                if distance ~= nil and distance < bestDistance then
+                    bestDistance = distance
+                    bestPart = child
+                end
             end
         end
 
@@ -178,9 +256,11 @@ local function findOwnerPlayer(hitbox)
                 local character, humanoid, root = getCharacterData(player)
 
                 if character ~= nil and humanoid ~= nil and root ~= nil then
+                    local hitboxPosition = safePosition(hitbox)
+
                     local _, part = nearestBodyPartDistance(
                         character,
-                        hitbox.Position
+                        hitboxPosition
                     )
 
                     return player, part
@@ -199,7 +279,7 @@ local function findTarget(hitbox)
 
     if ownerPlayer ~= nil then
         print(
-            "[StickyHitboxes V10] Matched Owner -> "
+            "[StickyHitboxes V11] Matched Owner -> "
             .. tostring(ownerPlayer.Name)
         )
 
@@ -227,14 +307,24 @@ local function findTarget(hitbox)
             local character, humanoid, root = getCharacterData(player)
 
             if character ~= nil and humanoid ~= nil and root ~= nil then
-                local localDistance =
-                    (root.Position - localRoot.Position).Magnitude
+                local rootPosition = safePosition(root)
+                local localPosition = safePosition(localRoot)
+                local localDistance = safeDistance(
+                    rootPosition,
+                    localPosition
+                )
+
+                if localDistance == nil then
+                    localDistance = math.huge
+                end
 
                 if localDistance <= MAX_DISTANCE then
+                    local hitboxPosition = safePosition(hitbox)
+
                     local bodyDistance, bodyPart =
                         nearestBodyPartDistance(
                             character,
-                            hitbox.Position
+                            hitboxPosition
                         )
 
                     if bodyDistance < bestDistance then
@@ -253,12 +343,18 @@ local function findTarget(hitbox)
         return nil, nil
     end
 
+    local hitboxMagnitude = safeMagnitude(hitbox.Size)
+
+    if hitboxMagnitude == nil then
+        hitboxMagnitude = 4
+    end
+
     local allowedDistance =
-        MAX_MATCH_DISTANCE + (hitbox.Size.Magnitude * 0.5)
+        MAX_MATCH_DISTANCE + (hitboxMagnitude * 0.5)
 
     if bestDistance > allowedDistance then
         print(
-            "[StickyHitboxes V10] Closest target too far from hitbox: "
+            "[StickyHitboxes V11] Closest target too far from hitbox: "
             .. tostring(math.floor(bestDistance * 100) / 100)
         )
 
@@ -266,7 +362,7 @@ local function findTarget(hitbox)
     end
 
     print(
-        "[StickyHitboxes V10] Matched -> "
+        "[StickyHitboxes V11] Matched -> "
         .. tostring(bestPlayer.Name)
         .. " | distance="
         .. tostring(math.floor(bestDistance * 100) / 100)
@@ -295,15 +391,22 @@ local function latchPlayer(player, hitbox, matchedPart)
         return
     end
 
+    local hitboxSize = hitbox.Size
+
+    if getXYZ(hitboxSize) == nil then
+        print("[StickyHitboxes V11] Invalid hitbox size; skipping latch")
+        return
+    end
+
     latched[player] = {
-        HitboxSize = hitbox.Size,
+        HitboxSize = hitboxSize,
         AnchorPartName = anchor.Name,
         Box = makeBox(),
         Label = makeLabel()
     }
 
     print(
-        "[StickyHitboxes V10] LATCHED -> "
+        "[StickyHitboxes V11] LATCHED -> "
         .. tostring(player.Name)
         .. " | anchor="
         .. tostring(anchor.Name)
@@ -343,8 +446,15 @@ local function updateLatch(player, data)
         data.AnchorPartName = anchor.Name
     end
 
+    local anchorPosition = safePosition(anchor)
+
+    if anchorPosition == nil then
+        hideLatch(data)
+        return
+    end
+
     local screenPosition, onScreen =
-        WorldToScreen(anchor.Position)
+        WorldToScreen(anchorPosition)
 
     if screenPosition == nil or onScreen ~= true then
         hideLatch(data)
@@ -357,15 +467,27 @@ local function updateLatch(player, data)
         local cameraPosition = Camera.CFrame.Position
 
         if cameraPosition ~= nil then
-            distance =
-                (cameraPosition - anchor.Position).Magnitude
+            local measured = safeDistance(
+                cameraPosition,
+                anchorPosition
+            )
+
+            if measured ~= nil then
+                distance = measured
+            end
         end
     else
         local localRoot = getLocalRoot()
 
         if localRoot ~= nil then
-            distance =
-                (localRoot.Position - anchor.Position).Magnitude
+            local measured = safeDistance(
+                safePosition(localRoot),
+                anchorPosition
+            )
+
+            if measured ~= nil then
+                distance = measured
+            end
         end
     end
 
@@ -373,7 +495,12 @@ local function updateLatch(player, data)
         distance = 1
     end
 
-    local sizeMagnitude = data.HitboxSize.Magnitude
+    local sizeMagnitude = safeMagnitude(data.HitboxSize)
+
+    if sizeMagnitude == nil then
+        hideLatch(data)
+        return
+    end
 
     local pixelSize =
         (sizeMagnitude * 115) / distance
@@ -446,7 +573,7 @@ local function processHitboxes()
     if folder == nil then
         if lastFolderState ~= false then
             print(
-                "[StickyHitboxes V10] workspace.Hitboxes NOT FOUND"
+                "[StickyHitboxes V11] workspace.Hitboxes NOT FOUND"
             )
 
             lastFolderState = false
@@ -457,7 +584,7 @@ local function processHitboxes()
 
     if lastFolderState ~= true then
         print(
-            "[StickyHitboxes V10] workspace.Hitboxes FOUND"
+            "[StickyHitboxes V11] workspace.Hitboxes FOUND"
         )
 
         lastFolderState = true
@@ -550,7 +677,7 @@ task.spawn(function()
 
             if not ok then
                 warn(
-                    "[StickyHitboxes V10] "
+                    "[StickyHitboxes V11] "
                     .. tostring(err)
                 )
             end
@@ -611,8 +738,8 @@ function StickyHitboxes.Destroy()
     clearAll()
 end
 
-print("[StickyHitboxes V10] 2D BODY-LOCK BUILD LOADED")
-print("[StickyHitboxes V10] No 3D vector constructor usage")
-print("[StickyHitboxes V10] One newest box per player")
+print("[StickyHitboxes V11] SAFE-VECTOR BODY-LOCK BUILD LOADED")
+print("[StickyHitboxes V11] Vector math uses guarded XYZ components")
+print("[StickyHitboxes V11] One newest box per player")
 
 return StickyHitboxes
