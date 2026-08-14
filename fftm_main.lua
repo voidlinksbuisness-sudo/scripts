@@ -479,6 +479,39 @@ Main:AddDropdown({
 })
 
 
+
+--==================================================
+-- HITBOX VISUALIZER CONTROLS
+--==================================================
+
+HitboxesTab:AddToggle({
+    Id = "show_hitboxes",
+    Title = "Show Hitboxes",
+    Default = false,
+
+    Callback = function(value)
+        HitboxVisualizer.SetEnabled(value)
+    end
+})
+
+if HitboxesTab.AddButton then
+    HitboxesTab:AddButton({
+        Id = "clear_hitboxes",
+        Title = "Clear All Hitbox Drawings",
+
+        Callback = function()
+            HitboxVisualizer.Clear()
+
+            Library:Notify({
+                Title = "Hitboxes",
+                Content = "Cleared all hitbox drawings.",
+                Duration = 3
+            })
+        end
+    })
+end
+
+
 --==================================================
 -- GAKURAN DEPENDENCY / STATE BRIDGE
 --==================================================
@@ -550,6 +583,11 @@ local ParryConfigTab = Window:AddTab({
 local TimingTab = Window:AddTab({
     Title = "Timing",
     Icon = "clock"
+})
+
+local HitboxesTab = Window:AddTab({
+    Title = "Hitboxes",
+    Icon = "box"
 })
 
 AutoParryTab:AddToggle({
@@ -651,38 +689,48 @@ ParryConfigTab:AddToggle({
     end
 })
 
-local FFTM_BASE_URL = getgenv().FFTM_BASE_URL
-if not FFTM_BASE_URL or FFTM_BASE_URL == "" then
-    error("[FFTM] FFTM_BASE_URL was not set. Run loader.lua first.")
-end
+local FFTM_URLS = getgenv().FFTM_URLS or {}
 
-if FFTM_BASE_URL:sub(-1) ~= "/" then
-    FFTM_BASE_URL = FFTM_BASE_URL .. "/"
-end
+local function LoadURL(name, url)
+    if not url or url == "" then
+        error("[FFTM] Missing URL for " .. name)
+    end
 
-local function LoadRemote(fileName)
-    local url = FFTM_BASE_URL .. fileName
-    local ok, body = pcall(game.HttpGet, game, url)
+    local ok, source = pcall(function()
+        return game:HttpGet(url)
+    end)
 
     if not ok then
-        error("[FFTM] Failed to download " .. fileName .. ": " .. tostring(body))
+        error("[FFTM] Failed to download " .. name .. ": " .. tostring(source))
     end
 
-    local fn, compileError = loadstring(body)
-    if not fn then
-        error("[FFTM] Failed to compile " .. fileName .. ": " .. tostring(compileError))
+    local chunk, compileError = loadstring(source)
+
+    if not chunk then
+        error("[FFTM] Failed to compile " .. name .. ": " .. tostring(compileError))
     end
 
-    local okRun, result = pcall(fn)
-    if not okRun then
-        error("[FFTM] " .. fileName .. " crashed while loading: " .. tostring(result))
+    local runOk, result = pcall(chunk)
+
+    if not runOk then
+        error("[FFTM] " .. name .. " crashed: " .. tostring(result))
     end
 
     return result
 end
 
-local AnimationTrackerClass = LoadRemote("animationtracker.lua")
-local ESP_Utility = LoadRemote("esp_utility.lua")
+local AnimationTrackerClass =
+    getgenv().AnimationTrackerClass
+    or LoadURL("AnimationTracker", FFTM_URLS.AnimationTracker)
+
+local ESP_Utility =
+    getgenv().ESP_Utility
+    or LoadURL("ESP Utility", FFTM_URLS.ESPUtility)
+
+local HitboxVisualizer =
+    getgenv().HitboxVisualizer
+    or LoadURL("Hitbox Visualizer", FFTM_URLS.HitboxVisualizer)
+
 
 local AnimationsLoggedCache = {}
 local AnimationsLoggedOrder = {}
@@ -694,7 +742,9 @@ local AnimationsLoggedOrder = {}
 
 local GameName = "Gakuran"
 
-local GameConfig = LoadRemote("game_config.lua")
+local GameConfig =
+    getgenv().GameConfig
+    or LoadURL("Game Config", FFTM_URLS.GameConfig)
 
 local IgnoreIds = {
 73766443218740,111699625251889,85823794654077,99661732639863,106268941365574,109816855387997,122561749929324,129805948180599,
