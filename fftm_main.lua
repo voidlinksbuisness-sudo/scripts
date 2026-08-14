@@ -1,4 +1,4 @@
--- FFTM_MAIN_BUILD = "2026-08-13-KEYBINDS-REGFIX-1"
+-- FFTM_MAIN_BUILD = "2026-08-13-KEYBINDS-SPLIT-2"
 --// WABI SABI UI
 loadstring(game:HttpGet("https://scripts.wabisabi.mom/wabi-sabi-ui-lib.lua"))()
 
@@ -2205,32 +2205,33 @@ SafeAddSlider(TargetingTab, {
 
 
 local ProcessToggleKeybind = nil
+local AddKeybindDropdown = nil
+local ToggleKeybinds = {
+    ESP = "None",
+    Tracers = "None",
+    PlayerHealth = "None",
+    SelfHealth = "None",
 
-local function SetupConfigAndKeybinds()
+    AutoParry = "None",
+    AutoDodge = "None",
+    AutoPlay = "None",
+    ParryDebug = "None",
+
+    AutoTargetNearest = "None",
+    MultipleTargets = "None",
+    IncludeLocalCharacter = "None",
+    TargetFacingYou = "None",
+    YouFacingTarget = "None",
+
+    HeightMultiplier = "None",
+    PingCompensation = "None",
+}
+
+local function SetupKeybindEngine()
     --==================================================
     -- TOGGLE KEYBINDS
     --==================================================
 
-    local ToggleKeybinds = {
-        ESP = "None",
-        Tracers = "None",
-        PlayerHealth = "None",
-        SelfHealth = "None",
-
-        AutoParry = "None",
-        AutoDodge = "None",
-        AutoPlay = "None",
-        ParryDebug = "None",
-
-        AutoTargetNearest = "None",
-        MultipleTargets = "None",
-        IncludeLocalCharacter = "None",
-        TargetFacingYou = "None",
-        YouFacingTarget = "None",
-
-        HeightMultiplier = "None",
-        PingCompensation = "None",
-    }
 
     local KeybindOptions = {
         "None",
@@ -2397,7 +2398,7 @@ local function SetupConfigAndKeybinds()
         return triggered
     end
 
-    local function AddKeybindDropdown(id, title, actionName)
+    AddKeybindDropdown = function(id, title, actionName)
         SafeAddDropdown(ConfigTab, {
             Id = id,
             Title = title,
@@ -2410,7 +2411,11 @@ local function SetupConfigAndKeybinds()
             end
         })
     end
+end
 
+SetupKeybindEngine()
+
+local function SetupPresetConfigUI()
     --==================================================
     -- CONFIG / SAVED PRESETS
     --==================================================
@@ -2893,7 +2898,11 @@ local function SetupConfigAndKeybinds()
     else
         print("[Config] File APIs unavailable; presets are session-only.")
     end
+end
 
+SetupPresetConfigUI()
+
+local function SetupTargetFolderUI()
     do
         local folders = GetAllFoldersInWorkspace()
         local defaultFolder = nil
@@ -2921,10 +2930,9 @@ local function SetupConfigAndKeybinds()
             end
         })
     end
-
 end
 
-SetupConfigAndKeybinds()
+SetupTargetFolderUI()
 
 Library:Notify({
     Title = "Loaded",
