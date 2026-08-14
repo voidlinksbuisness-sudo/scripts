@@ -1,0 +1,269 @@
+-- FFTM Hitbox Visualizer
+-- Adapted from the supplied hitbox visualizer script.
+-- UI-independent module for use by fftm_main.lua.
+
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local Workspace = game:GetService("Workspace")
+
+local LocalPlayer = Players.LocalPlayer
+
+local HitboxVisualizer = {}
+HitboxVisualizer.__index = HitboxVisualizer
+
+local enabled = false
+local activeVisuals = {}
+
+local CORNER_OFFSETS = {
+    Vector3.new(-1,-1,-1), Vector3.new(1,-1,-1),
+    Vector3.new(1,1,-1),   Vector3.new(-1,1,-1),
+    Vector3.new(-1,-1,1),  Vector3.new(1,-1,1),
+    Vector3.new(1,1,1),    Vector3.new(-1,1,1),
+}
+
+local EDGES = {
+    {1,2},{2,3},{3,4},{4,1},
+    {5,6},{6,7},{7,8},{8,5},
+    {1,5},{2,6},{3,7},{4,8},
+}
+
+local function getColor(part)
+    local owner = part:FindFirstChild("Owner")
+
+    if not owner or not owner:IsA("StringValue") then
+        return Color3.fromRGB(255, 255, 0)
+    end
+
+    if owner.Value == LocalPlayer.Name or owner.Value == LocalPlayer.DisplayName then
+        return Color3.fromRGB(0, 255, 0)
+    end
+
+    if owner.Value == "" then
+        return Color3.fromRGB(255, 165, 0)
+    end
+
+    return Color3.fromRGB(255, 50, 50)
+end
+
+local function getCorners(part)
+    local cf = part.CFrame
+    local halfSize = part.Size / 2
+    local corners = {}
+
+    for i, offset in ipairs(CORNER_OFFSETS) do
+        corners[i] = cf:PointToWorldSpace(offset * halfSize)
+    end
+
+    return corners
+end
+
+local function createVisual(part)
+    local color = getColor(part)
+    local lines = {}
+
+    for i = 1, 12 do
+        local line = Drawing.new("Line")
+        line.Thickness = 1.5
+        line.Color = color
+        line.Visible = false
+        lines[i] = line
+    end
+
+    local label = Drawing.new("Text")
+    label.Center = true
+    label.Outline = true
+    label.Size = 13
+    label.Font = 0
+    label.Color = color
+    label.Visible = false
+
+    return {
+        lines = lines,
+        label = label,
+        part = part,
+    }
+end
+
+local function hideVisual(visual)
+    for _, line in ipairs(visual.lines) do
+        line.Visible = false
+    end
+    visual.label.Visible = false
+end
+
+local function updateVisual(visual, part)
+    if not part or not part.Parent then
+        hideVisual(visual)
+        return
+    end
+
+    local color = getColor(part)
+    local corners = getCorners(part)
+    local anyOn = false
+
+    for i, edge in ipairs(EDGES) do
+        local c1 = corners[edge[1]]
+        local c2 = corners[edge[2]]
+
+        local p1, on1 = WorldToScreen(c1)
+        local p2, on2 = WorldToScreen(c2)
+
+        if p1 and p2 and on1 and on2 then
+            local line = visual.lines[i]
+            line.From = p1
+            line.To = p2
+            line.Color = color
+            line.Visible = true
+            anyOn = true
+        else
+            visual.lines[i].Visible = false
+        end
+    end
+
+    local topCenter = part.CFrame:PointToWorldSpace(
+        Vector3.new(0, part.Size.Y / 2 + 0.5, 0)
+    )
+
+    local labelPos, labelOnScreen = WorldToScreen(topCenter)
+
+    if labelPos and labelOnScreen and anyOn then
+        local owner = part:FindFirstChild("Owner")
+        local attackName = part:FindFirstChild("AttackName")
+
+        local ownerName =
+            owner and owner:IsA("StringValue")
+            and owner.Value
+            or "?"
+
+        local attack =
+            attackName and attackName:IsA("StringValue")
+            and attackName.Value
+            or "?"
+
+        visual.label.Position = labelPos
+        visual.label.Text = ownerName .. " | " .. attack
+        visual.label.Color = color
+        visual.label.Visible = true
+    else
+        visual.label.Visible = false
+    end
+end
+
+local function removeVisual(key)
+    local visual = activeVisuals[key]
+    if not visual then
+        return
+    end
+
+    for _, line in ipairs(visual.lines) do
+        pcall(function()
+            line:Remove()
+        end)
+    end
+
+    pcall(function()
+        visual.label:Remove()
+    end)
+
+    activeVisuals[key] = nil
+end
+
+local function clearAll()
+    local keys = {}
+
+    for key in pairs(activeVisuals) do
+        table.insert(keys, key)
+    end
+
+    for _, key in ipairs(keys) do
+        removeVisual(key)
+    end
+end
+
+local connection
+
+local function update()
+    if not enabled then
+        if next(activeVisuals) ~= nil then
+            clearAll()
+        end
+        return
+    end
+
+    local hitboxFolder = Workspace:FindFirstChild("Hitboxes")
+
+    if not hitboxFolder then
+        clearAll()
+        return
+    end
+
+    local current = {}
+
+    for _, part in ipairs(hitboxFolder:GetChildren()) do
+        if part:IsA("BasePart") then
+            -- Address is preferable in this executor environment, but fall back
+            -- to tostring() so the module does not depend on it.
+            local key = part.Address or tostring(part)
+            current[key] = true
+
+            local visual = activeVisuals[key]
+
+            if not visual then
+                visual = createVisual(part)
+                activeVisuals[key] = visual
+            end
+
+            updateVisual(visual, part)
+        end
+    end
+
+    local stale = {}
+
+    for key in pairs(activeVisuals) do
+        if not current[key] then
+            table.insert(stale, key)
+        end
+    end
+
+    for _, key in ipairs(stale) do
+        removeVisual(key)
+    end
+end
+
+function HitboxVisualizer.SetEnabled(value)
+    enabled = value == true
+
+    if not enabled then
+        clearAll()
+    end
+end
+
+function HitboxVisualizer.IsEnabled()
+    return enabled
+end
+
+function HitboxVisualizer.Clear()
+    clearAll()
+end
+
+function HitboxVisualizer.Destroy()
+    enabled = false
+    clearAll()
+
+    if connection then
+        connection:Disconnect()
+        connection = nil
+    end
+end
+
+connection = RunService.RenderStepped:Connect(function()
+    local ok, err = pcall(update)
+
+    if not ok then
+        warn("[HitboxVisualizer] " .. tostring(err))
+    end
+end)
+
+print("[HitboxVisualizer] Module loaded")
+
+return HitboxVisualizer
