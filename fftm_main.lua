@@ -481,38 +481,6 @@ Main:AddDropdown({
 
 
 --==================================================
--- HITBOX VISUALIZER CONTROLS
---==================================================
-
-HitboxesTab:AddToggle({
-    Id = "show_hitboxes",
-    Title = "Show Hitboxes",
-    Default = false,
-
-    Callback = function(value)
-        HitboxVisualizer.SetEnabled(value)
-    end
-})
-
-if HitboxesTab.AddButton then
-    HitboxesTab:AddButton({
-        Id = "clear_hitboxes",
-        Title = "Clear All Hitbox Drawings",
-
-        Callback = function()
-            HitboxVisualizer.Clear()
-
-            Library:Notify({
-                Title = "Hitboxes",
-                Content = "Cleared all hitbox drawings.",
-                Duration = 3
-            })
-        end
-    })
-end
-
-
---==================================================
 -- GAKURAN DEPENDENCY / STATE BRIDGE
 --==================================================
 
@@ -589,6 +557,39 @@ local HitboxesTab = Window:AddTab({
     Title = "Hitboxes",
     Icon = "box"
 })
+
+
+--==================================================
+-- HITBOX VISUALIZER CONTROLS
+--==================================================
+
+HitboxesTab:AddToggle({
+    Id = "show_hitboxes",
+    Title = "Show Hitboxes",
+    Default = false,
+
+    Callback = function(value)
+        HitboxVisualizer.SetEnabled(value)
+    end
+})
+
+if HitboxesTab.AddButton then
+    HitboxesTab:AddButton({
+        Id = "clear_hitboxes",
+        Title = "Clear All Hitbox Drawings",
+
+        Callback = function()
+            HitboxVisualizer.Clear()
+
+            Library:Notify({
+                Title = "Hitboxes",
+                Content = "Cleared all hitbox drawings.",
+                Duration = 3
+            })
+        end
+    })
+end
+
 
 AutoParryTab:AddToggle({
     Id = "auto_parry",
@@ -727,9 +728,14 @@ local ESP_Utility =
     _G.ESP_Utility
     or LoadURL("ESP Utility", FFTM_URLS.ESPUtility)
 
-local HitboxVisualizer =
-    _G.HitboxVisualizer
-    or LoadURL("Hitbox Visualizer", FFTM_URLS.HitboxVisualizer)
+local HitboxVisualizer = _G.HitboxVisualizer
+
+if not HitboxVisualizer then
+    HitboxVisualizer = LoadURL(
+        "Hitbox Visualizer",
+        FFTM_URLS.HitboxVisualizer
+    )
+end
 
 
 local AnimationsLoggedCache = {}
