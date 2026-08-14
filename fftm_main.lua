@@ -9,7 +9,7 @@ local Window = Library:CreateWindow({
     SubTitle = "v1.1 PRESETS",
     Size = Vector2.new(580, 460),
     Resize = true,
-    Theme = "AmethystDark",
+    Theme = "Amethyst Dark",
 })
 
 local Main = Window:AddTab({
@@ -2425,7 +2425,7 @@ local function SetupPresetConfigUI()
 
     local Presets = {}
     local SelectedPresetSlot = "Slot 1"
-    local CurrentTheme = "AmethystDark"
+    local CurrentTheme = "Amethyst Dark"
 
     local function CanUsePersistentFiles()
         return type(writefile) == "function"
@@ -2868,7 +2868,7 @@ local function SetupPresetConfigUI()
         Id = "config_theme",
         Title = "Theme",
         Options = Library.Themes,
-        Default = "AmethystDark",
+        Default = "Amethyst Dark",
 
         Callback = function(value)
             CurrentTheme = value
