@@ -1,4 +1,4 @@
--- FFTM_MAIN_BUILD = "2026-08-13-MATCHA-FIX-6"
+-- FFTM_MAIN_BUILD = "2026-08-13-MATCHA-FIX-7"
 -- FFTM_MAIN_BUILD = "2026-08-13-MATCHA-FIX-5"
 --// WABI SABI UI
 loadstring(game:HttpGet("https://scripts.wabisabi.mom/wabi-sabi-ui-lib.lua"))()
@@ -602,16 +602,15 @@ local AutoParryTab   = SafeAddTab("Auto Parry", "swords")
 local TargetingTab   = SafeAddTab("Targeting", "crosshair")
 local ParryConfigTab = SafeAddTab("Parry Config", "settings")
 local TimingTab      = SafeAddTab("Timing", "clock")
-local HitboxesTab    = SafeAddTab("Hitboxes", "box")
 
 
 --==================================================
 -- HITBOX CONTROLS
 --==================================================
 
-SafeAddToggle(HitboxesTab, {
+SafeAddToggle(Main, {
     Id = "show_hitboxes",
-    Title = "Sticky Hitboxes",
+    Title = "Sticky Hitboxes (20 studs)",
     Default = true,
 
     Callback = function(value)
@@ -621,9 +620,9 @@ SafeAddToggle(HitboxesTab, {
     end
 })
 
-SafeAddSlider(HitboxesTab, {
+SafeAddSlider(Main, {
     Id = "hitbox_detection_range",
-    Title = "Detection Range",
+    Title = "Hitbox Detection Range",
     Min = 5,
     Max = 50,
     Default = 20,
@@ -635,7 +634,7 @@ SafeAddSlider(HitboxesTab, {
     end
 })
 
-SafeAddButton(HitboxesTab, {
+SafeAddButton(Main, {
     Id = "clear_sticky_hitboxes",
     Title = "Clear Sticky Hitboxes",
 
@@ -644,6 +643,13 @@ SafeAddButton(HitboxesTab, {
             HitboxVisualizer.Clear()
         end
     end
+})
+
+
+Library:Notify({
+    Title = "Hitboxes",
+    Content = "Sticky hitbox controls are on the Main tab.",
+    Duration = 4
 })
 
 SafeAddToggle(AutoParryTab, {
