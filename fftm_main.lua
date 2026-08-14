@@ -1,3 +1,4 @@
+-- FFTM_MAIN_BUILD = "2026-08-13-MATCHA-FIX-6"
 -- FFTM_MAIN_BUILD = "2026-08-13-MATCHA-FIX-5"
 --// WABI SABI UI
 loadstring(game:HttpGet("https://scripts.wabisabi.mom/wabi-sabi-ui-lib.lua"))()
@@ -601,9 +602,49 @@ local AutoParryTab   = SafeAddTab("Auto Parry", "swords")
 local TargetingTab   = SafeAddTab("Targeting", "crosshair")
 local ParryConfigTab = SafeAddTab("Parry Config", "settings")
 local TimingTab      = SafeAddTab("Timing", "clock")
+local HitboxesTab    = SafeAddTab("Hitboxes", "box")
 
--- Sticky hitboxes run as a standalone Matcha module.
--- Press P to clear latched boxes.
+
+--==================================================
+-- HITBOX CONTROLS
+--==================================================
+
+SafeAddToggle(HitboxesTab, {
+    Id = "show_hitboxes",
+    Title = "Sticky Hitboxes",
+    Default = true,
+
+    Callback = function(value)
+        if HitboxVisualizer and HitboxVisualizer.SetEnabled then
+            HitboxVisualizer.SetEnabled(value)
+        end
+    end
+})
+
+SafeAddSlider(HitboxesTab, {
+    Id = "hitbox_detection_range",
+    Title = "Detection Range",
+    Min = 5,
+    Max = 50,
+    Default = 20,
+
+    Callback = function(value)
+        if HitboxVisualizer and HitboxVisualizer.SetDetectionDistance then
+            HitboxVisualizer.SetDetectionDistance(value)
+        end
+    end
+})
+
+SafeAddButton(HitboxesTab, {
+    Id = "clear_sticky_hitboxes",
+    Title = "Clear Sticky Hitboxes",
+
+    Callback = function()
+        if HitboxVisualizer and HitboxVisualizer.Clear then
+            HitboxVisualizer.Clear()
+        end
+    end
+})
 
 SafeAddToggle(AutoParryTab, {
     Id = "auto_parry",
