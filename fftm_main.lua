@@ -1,4 +1,4 @@
--- FFTM_MAIN_BUILD = "2026-08-13-MATCHA-FIX-4"
+-- FFTM_MAIN_BUILD = "2026-08-13-MATCHA-FIX-5"
 --// WABI SABI UI
 loadstring(game:HttpGet("https://scripts.wabisabi.mom/wabi-sabi-ui-lib.lua"))()
 
@@ -536,10 +536,6 @@ local AutoPlayToggle       = NewValueControl(true)
 -- Dependencies are injected as locals by loader.lua into this SAME Lua chunk.
 -- This avoids Matcha losing module return values between separate loadstring calls.
 
-if type(HitboxVisualizer) ~= "table" then
-    warn("[FFTM] Hitbox visualizer module is unavailable; hitbox controls will be disabled.")
-end
-
 print("[FFTM] Single-chunk dependency scope active.")
 
 -- Extra tabs keep the original Wabi Sabi look.
@@ -605,43 +601,9 @@ local AutoParryTab   = SafeAddTab("Auto Parry", "swords")
 local TargetingTab   = SafeAddTab("Targeting", "crosshair")
 local ParryConfigTab = SafeAddTab("Parry Config", "settings")
 local TimingTab      = SafeAddTab("Timing", "clock")
-local HitboxesTab    = SafeAddTab("Hitboxes", "box")
 
---==================================================
--- HITBOX VISUALIZER CONTROLS
---==================================================
-
-if type(HitboxVisualizer) ~= "table" then
-    warn("[Hitboxes] Module did not return a table; hitbox controls disabled.")
-else
-
-SafeAddToggle(HitboxesTab, {
-    Id = "show_hitboxes",
-    Title = "Show Hitboxes",
-    Default = false,
-
-    Callback = function(value)
-        HitboxVisualizer.SetEnabled(value)
-    end
-})
-
-SafeAddButton(HitboxesTab, {
-        Id = "clear_hitboxes",
-        Title = "Clear All Hitbox Drawings",
-
-        Callback = function()
-            HitboxVisualizer.Clear()
-
-            Library:Notify({
-                Title = "Hitboxes",
-                Content = "Cleared all hitbox drawings.",
-                Duration = 3
-            })
-        end
-    })
-
-end
-
+-- Sticky hitboxes run as a standalone Matcha module.
+-- Press P to clear latched boxes.
 
 SafeAddToggle(AutoParryTab, {
     Id = "auto_parry",
