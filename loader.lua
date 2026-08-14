@@ -1,5 +1,5 @@
--- FFTM Matcha loader - no hitbox visualizer
-print("[FFTM] Loader build: 2026-08-13-MATCHA-PRESETS-FIX-2")
+-- FFTM Matcha loader - presets + keybinds, explicit dependency injection
+print("[FFTM] Loader build: 2026-08-13-MATCHA-EXPLICIT-DEPS-1")
 
 local URLS = {
     AnimationTracker = "https://raw.githubusercontent.com/voidlinksbuisness-sudo/scripts/refs/heads/main/animationtracker(1).lua",
@@ -71,52 +71,42 @@ if mainSource == nil then
     return
 end
 
--- Matcha does not reliably preserve return values/globals between separate
--- loadstring chunks. Put all three modules and main into ONE compiled chunk.
---
--- Each dependency gets its own function scope so its `return` works normally.
--- Main also gets its own named function scope to avoid Matcha's local-register
--- limit and the ambiguous-IIFE parser issue.
+-- Matcha does not reliably preserve returned module tables between separate
+-- loadstring chunks, and it also does not reliably capture outer locals into
+-- nested functions. So dependencies are created in ONE chunk and then passed
+-- EXPLICITLY as parameters to the main function.
 local compositeSource =
-    "local AnimationTrackerClass = (function()\n"
+    "local __AnimationTrackerClass = (function()\n"
     .. animationSource
     .. "\nend)()\n\n"
 
-    .. "local ESP_Utility = (function()\n"
+    .. "local __ESP_Utility = (function()\n"
     .. espSource
     .. "\nend)()\n\n"
 
-    .. "local GameConfig = (function()\n"
+    .. "local __GameConfig = (function()\n"
     .. gameConfigSource
     .. "\nend)()\n\n"
 
-    .. "local function __FFTM_RUN_MAIN()\n"
+    .. "local function __FFTM_RUN_MAIN(AnimationTrackerClass, ESP_Utility, GameConfig)\n"
     .. mainSource
     .. "\nend\n\n"
 
-    .. "__FFTM_RUN_MAIN()\n"
+    .. "__FFTM_RUN_MAIN(__AnimationTrackerClass, __ESP_Utility, __GameConfig)\n"
 
-print("[FFTM] Compiling single-chunk core (hitbox visualizer removed)...")
+print("[FFTM] Compiling single-chunk core with explicit dependencies...")
 
-local chunk, compileError =
-    loadstring(compositeSource)
+local chunk, compileError = loadstring(compositeSource)
 
 if not chunk then
-    warn(
-        "[FFTM Loader] Compile failed: "
-        .. tostring(compileError)
-    )
+    warn("[FFTM Loader] Compile failed: " .. tostring(compileError))
     return
 end
 
-local ok, runError =
-    pcall(chunk)
+local ok, runError = pcall(chunk)
 
 if not ok then
-    warn(
-        "[FFTM Loader] Runtime failed: "
-        .. tostring(runError)
-    )
+    warn("[FFTM Loader] Runtime failed: " .. tostring(runError))
     return
 end
 
