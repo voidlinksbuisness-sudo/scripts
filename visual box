@@ -159,13 +159,13 @@ local function clearAll()
     print("[StickyHitboxes] Cleared")
 end
 
-local function distancePointToBox(point, boxCFrame, boxSize)
-    local localPoint = boxCFrame:PointToObjectSpace(point)
+local function distancePointToBox(point, boxPosition, boxSize)
     local half = boxSize * 0.5
+    local delta = point - boxPosition
 
-    local dx = math.abs(localPoint.X) - half.X
-    local dy = math.abs(localPoint.Y) - half.Y
-    local dz = math.abs(localPoint.Z) - half.Z
+    local dx = math.abs(delta.X) - half.X
+    local dy = math.abs(delta.Y) - half.Y
+    local dz = math.abs(delta.Z) - half.Z
 
     if dx < 0 then dx = 0 end
     if dy < 0 then dy = 0 end
@@ -197,7 +197,7 @@ local function findTarget(hitbox)
                 if localDistance <= MAX_DISTANCE then
                     local outsideDistance = distancePointToBox(
                         root.Position,
-                        hitbox.CFrame,
+                        hitbox.Position,
                         hitbox.Size
                     )
 
@@ -231,7 +231,7 @@ local function latchPlayer(player, hitbox)
 
     if existing ~= nil then
         existing.Size = hitbox.Size
-        existing.RelativeCFrame = root.CFrame:ToObjectSpace(hitbox.CFrame)
+        existing.Offset = hitbox.Position - root.Position
         return
     end
 
@@ -245,7 +245,7 @@ local function latchPlayer(player, hitbox)
 
     latched[player] = {
         Size = hitbox.Size,
-        RelativeCFrame = root.CFrame:ToObjectSpace(hitbox.CFrame),
+        Offset = hitbox.Position - root.Position,
         Lines = lines,
         Label = makeLabel()
     }
@@ -253,20 +253,20 @@ local function latchPlayer(player, hitbox)
     print("[StickyHitboxes] Latched " .. tostring(player.Name))
 end
 
-local function getWorldCorners(cframe, size)
+local function getWorldCorners(center, size)
     local half = size * 0.5
     local result = {}
 
     local i = 1
     while i <= #CORNERS do
         local sign = CORNERS[i]
-        local offset = Vector3.new(
-            sign.X * half.X,
-            sign.Y * half.Y,
-            sign.Z * half.Z
+
+        result[i] = Vector3.new(
+            center.X + sign.X * half.X,
+            center.Y + sign.Y * half.Y,
+            center.Z + sign.Z * half.Z
         )
 
-        result[i] = cframe:PointToWorldSpace(offset)
         i = i + 1
     end
 
@@ -281,8 +281,8 @@ local function updateLatch(player, data)
         return
     end
 
-    local boxCFrame = root.CFrame * data.RelativeCFrame
-    local worldCorners = getWorldCorners(boxCFrame, data.Size)
+    local boxCenter = root.Position + data.Offset
+    local worldCorners = getWorldCorners(boxCenter, data.Size)
     local screenCorners = {}
     local visibleCount = 0
 
@@ -339,8 +339,10 @@ local function updateLatch(player, data)
     end
 
     if anyLine then
-        local topWorld = boxCFrame:PointToWorldSpace(
-            Vector3.new(0, data.Size.Y * 0.5 + 0.6, 0)
+        local topWorld = Vector3.new(
+            boxCenter.X,
+            boxCenter.Y + data.Size.Y * 0.5 + 0.6,
+            boxCenter.Z
         )
 
         local topScreen, topVisible = WorldToScreen(topWorld)
@@ -580,7 +582,7 @@ function StickyHitboxes.Destroy()
     clearAll()
 end
 
-print("[StickyHitboxes] Matcha-safe build loaded")
+print("[StickyHitboxes] Matcha-safe NO-CFRAME latch build loaded")
 print("[StickyHitboxes] Detection range: " .. tostring(MAX_DISTANCE))
 print("[StickyHitboxes] Press P to clear latched boxes")
 
