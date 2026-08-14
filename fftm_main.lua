@@ -533,35 +533,49 @@ local PingCompensateToggle = NewValueControl(true)
 local AutoPlayToggle       = NewValueControl(true)
 
 -- Extra tabs keep the original Wabi Sabi look.
-local AutoParryTab = Window:AddTab({
-    Title = "Auto Parry",
-    Icon = "swords"
-})
+-- Some Wabi builds return nil when an icon/tab definition is unsupported.
+-- Fall back to the already-working Main tab instead of crashing.
+local function SafeAddTab(title, icon)
+    local tab
 
-local TargetingTab = Window:AddTab({
-    Title = "Targeting",
-    Icon = "crosshair"
-})
+    local ok, result = pcall(function()
+        return Window:AddTab({
+            Title = title,
+            Icon = icon
+        })
+    end)
 
-local ParryConfigTab = Window:AddTab({
-    Title = "Parry Config",
-    Icon = "settings"
-})
+    if ok then
+        tab = result
+    end
 
-local TimingTab = Window:AddTab({
-    Title = "Timing",
-    Icon = "clock"
-})
+    if not tab then
+        warn("[UI] Failed to create tab '" .. tostring(title) .. "'; using Main tab instead.")
+        tab = Main
+    end
 
-local HitboxesTab = Window:AddTab({
-    Title = "Hitboxes",
-    Icon = "box"
-})
+    return tab
+end
 
+local AutoParryTab   = SafeAddTab("Auto Parry", "swords")
+local TargetingTab   = SafeAddTab("Targeting", "crosshair")
+local ParryConfigTab = SafeAddTab("Parry Config", "settings")
+local TimingTab      = SafeAddTab("Timing", "clock")
+local HitboxesTab    = SafeAddTab("Hitboxes", "box")
+
+AutoParryTab   = AutoParryTab   or Main
+TargetingTab   = TargetingTab   or Main
+ParryConfigTab = ParryConfigTab or Main
+TimingTab      = TimingTab      or Main
+HitboxesTab    = HitboxesTab    or Main
 
 --==================================================
 -- HITBOX VISUALIZER CONTROLS
 --==================================================
+
+if not HitboxVisualizer or type(HitboxVisualizer) ~= "table" then
+    warn("[Hitboxes] Module did not return a table; hitbox controls disabled.")
+else
 
 HitboxesTab:AddToggle({
     Id = "show_hitboxes",
@@ -573,7 +587,7 @@ HitboxesTab:AddToggle({
     end
 })
 
-if HitboxesTab.AddButton then
+if HitboxesTab and HitboxesTab.AddButton then
     HitboxesTab:AddButton({
         Id = "clear_hitboxes",
         Title = "Clear All Hitbox Drawings",
@@ -588,6 +602,8 @@ if HitboxesTab.AddButton then
             })
         end
     })
+end
+
 end
 
 
@@ -2370,4 +2386,4 @@ RunService.RenderStepped:Connect(function()
     updateHealth(players)
 end)
 
-print("Free Fortnite Cheats TM | Wabi + Gakuran fixed v3 | live offsets + restored autoplay")
+print("Free Fortnite Cheats TM | Wabi tabs safe-fallback build loaded")
