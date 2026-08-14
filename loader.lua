@@ -1,18 +1,62 @@
--- FFTM tiny loader
--- Change this one URL after uploading the split files to your GitHub repo.
-local BASE_URL = "https://raw.githubusercontent.com/YOUR_GITHUB_NAME/YOUR_REPO/main/"
+-- FFTM loader
 
-getgenv().FFTM_BASE_URL = BASE_URL
+local URLS = {
+    AnimationTracker = "https://github.com/voidlinksbuisness-sudo/scripts/raw/refs/heads/main/animationtracker(1).lua",
+    ESPUtility = "https://raw.githubusercontent.com/voidlinksbuisness-sudo/scripts/refs/heads/main/esp_utility(1).lua",
+    Main = "https://github.com/voidlinksbuisness-sudo/scripts/raw/refs/heads/main/fftm_main.lua",
+    GameConfig = "https://github.com/voidlinksbuisness-sudo/scripts/raw/refs/heads/main/game_config.lua",
+}
 
-local function Load(fileName)
-    local source = game:HttpGet(BASE_URL .. fileName)
-    local chunk, err = loadstring(source)
+getgenv().FFTM_URLS = URLS
 
-    if not chunk then
-        error("[FFTM Loader] Compile error in " .. fileName .. ": " .. tostring(err))
+local function LoadURL(name, url)
+    print("[FFTM] Loading " .. name .. "...")
+
+    local success, source = pcall(function()
+        return game:HttpGet(url)
+    end)
+
+    if not success then
+        error("[FFTM] Failed to download " .. name .. ": " .. tostring(source))
     end
 
-    return chunk()
+    local chunk, compileError = loadstring(source)
+
+    if not chunk then
+        error("[FFTM] Failed to compile " .. name .. ": " .. tostring(compileError))
+    end
+
+    local ok, result = pcall(chunk)
+
+    if not ok then
+        error("[FFTM] " .. name .. " crashed: " .. tostring(result))
+    end
+
+    print("[FFTM] Loaded " .. name)
+
+    return result
 end
 
-Load("fftm_main.lua")
+-- Load dependencies first
+getgenv().AnimationTrackerClass = LoadURL(
+    "AnimationTracker",
+    URLS.AnimationTracker
+)
+
+getgenv().ESP_Utility = LoadURL(
+    "ESP Utility",
+    URLS.ESPUtility
+)
+
+getgenv().GameConfig = LoadURL(
+    "Game Config",
+    URLS.GameConfig
+)
+
+-- Load main last
+LoadURL(
+    "Main",
+    URLS.Main
+)
+
+print("[FFTM] Everything loaded successfully.")
