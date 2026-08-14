@@ -1,4 +1,4 @@
--- FFTM_MAIN_BUILD = "2026-08-13-CONFIG-TAB-1"
+-- FFTM_MAIN_BUILD = "2026-08-13-CONFIG-TAB-2"
 --// WABI SABI UI
 loadstring(game:HttpGet("https://scripts.wabisabi.mom/wabi-sabi-ui-lib.lua"))()
 
@@ -585,7 +585,6 @@ end
 local AutoParryTab   = SafeAddTab("Auto Parry", "swords")
 local TargetingTab   = SafeAddTab("Targeting", "crosshair")
 local ParryConfigTab = SafeAddTab("Parry Config", "settings")
-local TimingTab      = SafeAddTab("Timing", "clock")
 local ConfigTab      = SafeAddTab("Config", "settings")
 
 --==================================================
@@ -2174,7 +2173,7 @@ local function BuildTimingControls()
                     .. "_"
                     .. _sanitizeTimingId(animationId)
 
-                local slider = SafeAddSlider(TimingTab, {
+                local slider = SafeAddSlider(ParryConfigTab, {
                     Id = sliderId,
                     Title = style .. " | " .. displayName .. " (ms)",
                     Min = 0,
