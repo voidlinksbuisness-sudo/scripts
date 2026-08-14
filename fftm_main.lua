@@ -1,4 +1,4 @@
--- FFTM_MAIN_BUILD = "2026-08-13-CONFIG-TAB-2"
+-- FFTM_MAIN_BUILD = "2026-08-13-PRESETS-1"
 --// WABI SABI UI
 loadstring(game:HttpGet("https://scripts.wabisabi.mom/wabi-sabi-ui-lib.lua"))()
 
@@ -586,63 +586,6 @@ local AutoParryTab   = SafeAddTab("Auto Parry", "swords")
 local TargetingTab   = SafeAddTab("Targeting", "crosshair")
 local ParryConfigTab = SafeAddTab("Parry Config", "settings")
 local ConfigTab      = SafeAddTab("Config", "settings")
-
---==================================================
--- SIMPLE CONFIG TAB
---==================================================
-
-SafeAddDropdown(ConfigTab, {
-    Id = "config_theme",
-    Title = "Theme",
-    Options = Library.Themes,
-    Default = "AmethystDark",
-
-    Callback = function(value)
-        Library:SetTheme(value)
-        print("[Config] Theme:", value)
-    end
-})
-
-SafeAddButton(ConfigTab, {
-    Title = "Reset Visual Settings",
-
-    Callback = function()
-        state.ESP = false
-        state.Tracers = false
-        state.TracerTransparency = 0
-        state.PlayerHealth = false
-        state.SelfHealth = false
-
-        myHealthText.Visible = false
-        hidePoolFrom(espBoxes, 1)
-        hidePoolFrom(tracerLines, 1)
-        hidePoolFrom(healthTexts, 1)
-
-        Notify(
-            "Config",
-            "Visual settings reset.",
-            3
-        )
-    end
-})
-
-SafeAddButton(ConfigTab, {
-    Title = "Clear Drawings",
-
-    Callback = function()
-        myHealthText.Visible = false
-        hidePoolFrom(espBoxes, 1)
-        hidePoolFrom(tracerLines, 1)
-        hidePoolFrom(healthTexts, 1)
-
-        Notify(
-            "Config",
-            "ESP drawings cleared.",
-            3
-        )
-    end
-})
-
 
 SafeAddToggle(AutoParryTab, {
     Id = "auto_parry",
@@ -2257,6 +2200,405 @@ SafeAddSlider(TargetingTab, {
         MaxCycleRange = value
     end
 })
+
+
+--==================================================
+-- CONFIG / SAVED PRESETS
+--==================================================
+
+local HttpService = game:GetService("HttpService")
+local PRESET_FILE = "fftm_presets.json"
+
+local Presets = {}
+local SelectedPresetSlot = "Slot 1"
+local CurrentTheme = "AmethystDark"
+
+local function CanUsePersistentFiles()
+    return type(writefile) == "function"
+        and type(readfile) == "function"
+        and type(isfile) == "function"
+end
+
+local function ReadPresetFile()
+    if not CanUsePersistentFiles() then
+        return
+    end
+
+    local okExists, exists = pcall(function()
+        return isfile(PRESET_FILE)
+    end)
+
+    if not okExists or not exists then
+        return
+    end
+
+    local okRead, raw = pcall(function()
+        return readfile(PRESET_FILE)
+    end)
+
+    if not okRead or type(raw) ~= "string" or raw == "" then
+        return
+    end
+
+    local okDecode, decoded = pcall(function()
+        return HttpService:JSONDecode(raw)
+    end)
+
+    if okDecode and type(decoded) == "table" then
+        Presets = decoded
+        print("[Config] Loaded saved preset file.")
+    end
+end
+
+local function WritePresetFile()
+    if not CanUsePersistentFiles() then
+        return false
+    end
+
+    local okEncode, raw = pcall(function()
+        return HttpService:JSONEncode(Presets)
+    end)
+
+    if not okEncode then
+        warn("[Config] Could not encode presets: " .. tostring(raw))
+        return false
+    end
+
+    local okWrite, err = pcall(function()
+        writefile(PRESET_FILE, raw)
+    end)
+
+    if not okWrite then
+        warn("[Config] Could not save presets: " .. tostring(err))
+        return false
+    end
+
+    return true
+end
+
+local function CopyAnimationTimings()
+    local timings = {}
+
+    for animationId, info in pairs(GameConfig) do
+        if type(info) == "table" then
+            local value = info.ReactionTime
+
+            if value == nil then
+                value = info.DefaultReactionTime
+            end
+
+            if type(value) == "number" then
+                timings[tostring(animationId)] = value
+            end
+        end
+    end
+
+    return timings
+end
+
+local function CapturePreset()
+    return {
+        Theme = CurrentTheme,
+
+        Visuals = {
+            ESP = state.ESP,
+            Tracers = state.Tracers,
+            TracerTransparency = state.TracerTransparency,
+            PlayerHealth = state.PlayerHealth,
+            SelfHealth = state.SelfHealth,
+        },
+
+        Combat = {
+            AutoParry = AutoParryToggle.Get(),
+            AutoDodge = AutoDodgeToggle.Get(),
+            AutoPlay = AutoPlayToggle.Get(),
+            ParryDebug = ParryDebugToggle.Get(),
+            PingCompensation = PingCompensateToggle.Get(),
+            HeightMultiplier = HeightToggle.Get(),
+
+            AutoTargetNearest = AutoTargetNearest.Get(),
+            MultipleTargets = MultiTarget.Get(),
+            IncludeLocalCharacter = IncludeLocalCharacter,
+            TargetFacingYou = TargetFacingYou.Get(),
+            YouFacingTarget = YouFacingTarget.Get(),
+
+            AutoParryRange = AutoParryRange,
+            MaxCycleRange = MaxCycleRange,
+            ProbabilityToParry = ProbabilityToParry,
+            ParryOffset = ParryOffset,
+            ParryWindow = ParryWindow,
+        },
+
+        AnimationTimings = CopyAnimationTimings(),
+    }
+end
+
+local function ApplyAnimationTimings(timings)
+    if type(timings) ~= "table" then
+        return
+    end
+
+    for animationId, seconds in pairs(timings) do
+        local info = GameConfig[animationId]
+
+        if info == nil then
+            local numericId = tonumber(animationId)
+
+            if numericId ~= nil then
+                info = GameConfig[numericId]
+            end
+        end
+
+        if type(info) == "table" and type(seconds) == "number" then
+            info.ReactionTime = seconds
+            info.DefaultReactionTime = seconds
+
+            local slider =
+                AnimationIdSliders[animationId]
+                or AnimationIdSliders[tonumber(animationId)]
+
+            if slider ~= nil and type(slider.Set) == "function" then
+                pcall(function()
+                    slider:Set(
+                        math.floor(seconds * 1000 + 0.5)
+                    )
+                end)
+            end
+        end
+    end
+end
+
+local function ApplyPreset(preset)
+    if type(preset) ~= "table" then
+        return false
+    end
+
+    local visuals = preset.Visuals
+
+    if type(visuals) == "table" then
+        if type(visuals.ESP) == "boolean" then
+            state.ESP = visuals.ESP
+        end
+
+        if type(visuals.Tracers) == "boolean" then
+            state.Tracers = visuals.Tracers
+        end
+
+        if type(visuals.TracerTransparency) == "number" then
+            state.TracerTransparency = visuals.TracerTransparency
+        end
+
+        if type(visuals.PlayerHealth) == "boolean" then
+            state.PlayerHealth = visuals.PlayerHealth
+        end
+
+        if type(visuals.SelfHealth) == "boolean" then
+            state.SelfHealth = visuals.SelfHealth
+        end
+    end
+
+    local combat = preset.Combat
+
+    if type(combat) == "table" then
+        if type(combat.AutoParry) == "boolean" then
+            AutoParryToggle.Set(combat.AutoParry)
+        end
+
+        if type(combat.AutoDodge) == "boolean" then
+            AutoDodgeToggle.Set(combat.AutoDodge)
+        end
+
+        if type(combat.AutoPlay) == "boolean" then
+            AutoPlayToggle.Set(combat.AutoPlay)
+        end
+
+        if type(combat.ParryDebug) == "boolean" then
+            ParryDebugToggle.Set(combat.ParryDebug)
+        end
+
+        if type(combat.PingCompensation) == "boolean" then
+            PingCompensateToggle.Set(combat.PingCompensation)
+        end
+
+        if type(combat.HeightMultiplier) == "boolean" then
+            HeightToggle.Set(combat.HeightMultiplier)
+        end
+
+        if type(combat.AutoTargetNearest) == "boolean" then
+            AutoTargetNearest.Set(combat.AutoTargetNearest)
+        end
+
+        if type(combat.MultipleTargets) == "boolean" then
+            MultiTarget.Set(combat.MultipleTargets)
+        end
+
+        if type(combat.IncludeLocalCharacter) == "boolean" then
+            IncludeLocalCharacter = combat.IncludeLocalCharacter
+        end
+
+        if type(combat.TargetFacingYou) == "boolean" then
+            TargetFacingYou.Set(combat.TargetFacingYou)
+        end
+
+        if type(combat.YouFacingTarget) == "boolean" then
+            YouFacingTarget.Set(combat.YouFacingTarget)
+        end
+
+        if type(combat.AutoParryRange) == "number" then
+            AutoParryRange = combat.AutoParryRange
+        end
+
+        if type(combat.MaxCycleRange) == "number" then
+            MaxCycleRange = combat.MaxCycleRange
+        end
+
+        if type(combat.ProbabilityToParry) == "number" then
+            ProbabilityToParry = combat.ProbabilityToParry
+        end
+
+        if type(combat.ParryOffset) == "number" then
+            ParryOffset = combat.ParryOffset
+        end
+
+        if type(combat.ParryWindow) == "number" then
+            ParryWindow = combat.ParryWindow
+        end
+    end
+
+    if type(preset.Theme) == "string" then
+        CurrentTheme = preset.Theme
+
+        pcall(function()
+            Library:SetTheme(CurrentTheme)
+        end)
+    end
+
+    ApplyAnimationTimings(preset.AnimationTimings)
+
+    return true
+end
+
+ReadPresetFile()
+
+SafeAddDropdown(ConfigTab, {
+    Id = "preset_slot",
+    Title = "Preset Slot",
+    Options = {
+        "Slot 1",
+        "Slot 2",
+        "Slot 3"
+    },
+    Default = "Slot 1",
+
+    Callback = function(value)
+        SelectedPresetSlot = value
+    end
+})
+
+SafeAddButton(ConfigTab, {
+    Title = "Save Selected Preset",
+
+    Callback = function()
+        Presets[SelectedPresetSlot] = CapturePreset()
+
+        local persistent = WritePresetFile()
+
+        if persistent then
+            Notify(
+                "Config",
+                SelectedPresetSlot .. " saved.",
+                3
+            )
+        else
+            Notify(
+                "Config",
+                SelectedPresetSlot .. " saved for this session.",
+                4
+            )
+        end
+
+        print("[Config] Saved " .. SelectedPresetSlot)
+    end
+})
+
+SafeAddButton(ConfigTab, {
+    Title = "Load Selected Preset",
+
+    Callback = function()
+        local preset = Presets[SelectedPresetSlot]
+
+        if type(preset) ~= "table" then
+            Notify(
+                "Config",
+                SelectedPresetSlot .. " is empty.",
+                3
+            )
+            return
+        end
+
+        if ApplyPreset(preset) then
+            Notify(
+                "Config",
+                SelectedPresetSlot .. " loaded.",
+                3
+            )
+
+            print("[Config] Loaded " .. SelectedPresetSlot)
+        end
+    end
+})
+
+SafeAddButton(ConfigTab, {
+    Title = "Delete Selected Preset",
+
+    Callback = function()
+        Presets[SelectedPresetSlot] = nil
+        WritePresetFile()
+
+        Notify(
+            "Config",
+            SelectedPresetSlot .. " deleted.",
+            3
+        )
+
+        print("[Config] Deleted " .. SelectedPresetSlot)
+    end
+})
+
+SafeAddDropdown(ConfigTab, {
+    Id = "config_theme",
+    Title = "Theme",
+    Options = Library.Themes,
+    Default = "AmethystDark",
+
+    Callback = function(value)
+        CurrentTheme = value
+        Library:SetTheme(value)
+    end
+})
+
+SafeAddButton(ConfigTab, {
+    Title = "Clear Drawings",
+
+    Callback = function()
+        myHealthText.Visible = false
+        hidePoolFrom(espBoxes, 1)
+        hidePoolFrom(tracerLines, 1)
+        hidePoolFrom(healthTexts, 1)
+
+        Notify(
+            "Config",
+            "ESP drawings cleared.",
+            3
+        )
+    end
+})
+
+if CanUsePersistentFiles() then
+    print("[Config] Persistent presets enabled: " .. PRESET_FILE)
+else
+    print("[Config] File APIs unavailable; presets are session-only.")
+end
 
 do
     local folders = GetAllFoldersInWorkspace()
