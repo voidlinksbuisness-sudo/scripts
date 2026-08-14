@@ -1,5 +1,4 @@
--- FFTM_MAIN_BUILD = "2026-08-13-MATCHA-FIX-9"
--- FFTM_MAIN_BUILD = "2026-08-13-MATCHA-FIX-5"
+-- FFTM_MAIN_BUILD = "2026-08-13-MATCHA-FIX-4"
 --// WABI SABI UI
 loadstring(game:HttpGet("https://scripts.wabisabi.mom/wabi-sabi-ui-lib.lua"))()
 
@@ -481,7 +480,6 @@ Main:AddDropdown({
 })
 
 
-
 --==================================================
 -- GAKURAN DEPENDENCY / STATE BRIDGE
 --==================================================
@@ -536,6 +534,7 @@ local AutoPlayToggle       = NewValueControl(true)
 
 -- Dependencies are injected as locals by loader.lua into this SAME Lua chunk.
 -- This avoids Matcha losing module return values between separate loadstring calls.
+
 
 print("[FFTM] Single-chunk dependency scope active.")
 
@@ -602,55 +601,6 @@ local AutoParryTab   = SafeAddTab("Auto Parry", "swords")
 local TargetingTab   = SafeAddTab("Targeting", "crosshair")
 local ParryConfigTab = SafeAddTab("Parry Config", "settings")
 local TimingTab      = SafeAddTab("Timing", "clock")
-
-
---==================================================
--- HITBOX CONTROLS
---==================================================
-
-SafeAddToggle(Main, {
-    Id = "show_hitboxes",
-    Title = "Sticky Hitboxes (20 studs)",
-    Default = true,
-
-    Callback = function(value)
-        if HitboxVisualizer and HitboxVisualizer.SetEnabled then
-            HitboxVisualizer.SetEnabled(value)
-        end
-    end
-})
-
-SafeAddSlider(Main, {
-    Id = "hitbox_detection_range",
-    Title = "Hitbox Detection Range",
-    Min = 5,
-    Max = 50,
-    Default = 20,
-
-    Callback = function(value)
-        if HitboxVisualizer and HitboxVisualizer.SetDetectionDistance then
-            HitboxVisualizer.SetDetectionDistance(value)
-        end
-    end
-})
-
-SafeAddButton(Main, {
-    Id = "clear_sticky_hitboxes",
-    Title = "Clear Sticky Hitboxes",
-
-    Callback = function()
-        if HitboxVisualizer and HitboxVisualizer.Clear then
-            HitboxVisualizer.Clear()
-        end
-    end
-})
-
-
-Library:Notify({
-    Title = "Hitboxes",
-    Content = "Sticky hitbox controls are on the Main tab.",
-    Duration = 4
-})
 
 SafeAddToggle(AutoParryTab, {
     Id = "auto_parry",
@@ -2122,7 +2072,6 @@ function CycleEvent()
 end
 
 
-
 --==================================================
 -- PER-ANIMATION TIMING CONTROLS
 --==================================================
@@ -2338,7 +2287,6 @@ UIS.InputBegan:Connect(function(input, gameProcessed)
         --end]]
     end
 end)
-
 
 
 local STATE_MACHINE_TICK = 0.05
