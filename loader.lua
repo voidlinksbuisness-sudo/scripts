@@ -1,62 +1,81 @@
--- FFTM loader
+-- FFTM Matcha single-chunk loader
+-- All remote Lua sources are combined and executed in ONE loadstring chunk.
 
 local URLS = {
-    AnimationTracker = "https://github.com/voidlinksbuisness-sudo/scripts/raw/refs/heads/main/animationtracker(1).lua",
+    AnimationTracker = "https://raw.githubusercontent.com/voidlinksbuisness-sudo/scripts/refs/heads/main/animationtracker(1).lua",
     ESPUtility = "https://raw.githubusercontent.com/voidlinksbuisness-sudo/scripts/refs/heads/main/esp_utility(1).lua",
-    Main = "https://github.com/voidlinksbuisness-sudo/scripts/raw/refs/heads/main/fftm_main.lua",
-    GameConfig = "https://github.com/voidlinksbuisness-sudo/scripts/raw/refs/heads/main/game_config.lua",
+    GameConfig = "https://raw.githubusercontent.com/voidlinksbuisness-sudo/scripts/refs/heads/main/game_config.lua",
+    HitboxVisualizer = "https://raw.githubusercontent.com/voidlinksbuisness-sudo/scripts/refs/heads/main/visual%20box",
+    Main = "https://raw.githubusercontent.com/voidlinksbuisness-sudo/scripts/refs/heads/main/fftm_main.lua",
 }
 
-getgenv().FFTM_URLS = URLS
+local function FetchSource(name, url)
+    if type(url) ~= "string" or url == "" then
+        error("[FFTM Loader] Missing URL for " .. tostring(name))
+    end
 
-local function LoadURL(name, url)
-    print("[FFTM] Loading " .. name .. "...")
+    local separator = string.find(url, "?", 1, true) and "&" or "?"
+    local requestUrl = url
+        .. separator
+        .. "fftm_cb="
+        .. tostring(os.time())
+        .. "_"
+        .. tostring(math.random(100000, 999999))
 
-    local success, source = pcall(function()
-        return game:HttpGet(url)
+    local ok, source = pcall(function()
+        return game:HttpGet(requestUrl)
     end)
 
-    if not success then
-        error("[FFTM] Failed to download " .. name .. ": " .. tostring(source))
-    end
-
-    local chunk, compileError = loadstring(source)
-
-    if not chunk then
-        error("[FFTM] Failed to compile " .. name .. ": " .. tostring(compileError))
-    end
-
-    local ok, result = pcall(chunk)
-
     if not ok then
-        error("[FFTM] " .. name .. " crashed: " .. tostring(result))
+        error("[FFTM Loader] Failed to download " .. name .. ": " .. tostring(source))
     end
 
-    print("[FFTM] Loaded " .. name)
+    if type(source) ~= "string" or source == "" then
+        error("[FFTM Loader] Empty response for " .. name)
+    end
 
-    return result
+    if source:match("^%s*404") or source:find("404: Not Found", 1, true) then
+        error("[FFTM Loader] URL returned 404 for " .. name .. ": " .. url)
+    end
+
+    print("[FFTM] Downloaded " .. name)
+    return source
 end
 
--- Load dependencies first
-getgenv().AnimationTrackerClass = LoadURL(
-    "AnimationTracker",
-    URLS.AnimationTracker
-)
+local animationSource = FetchSource("AnimationTracker", URLS.AnimationTracker)
+local espSource = FetchSource("ESP Utility", URLS.ESPUtility)
+local gameConfigSource = FetchSource("Game Config", URLS.GameConfig)
+local hitboxSource = FetchSource("Hitbox Visualizer", URLS.HitboxVisualizer)
+local mainSource = FetchSource("Main", URLS.Main)
 
-getgenv().ESP_Utility = LoadURL(
-    "ESP Utility",
-    URLS.ESPUtility
-)
+local compositeSource =
+    "local AnimationTrackerClass = (function()\n"
+    .. animationSource
+    .. "\nend)()\n\n"
+    .. "local ESP_Utility = (function()\n"
+    .. espSource
+    .. "\nend)()\n\n"
+    .. "local GameConfig = (function()\n"
+    .. gameConfigSource
+    .. "\nend)()\n\n"
+    .. "local HitboxVisualizer = (function()\n"
+    .. hitboxSource
+    .. "\nend)()\n\n"
+    .. "-- ===== FFTM MAIN =====\n"
+    .. mainSource
 
-getgenv().GameConfig = LoadURL(
-    "Game Config",
-    URLS.GameConfig
-)
+print("[FFTM] Compiling single-chunk build...")
 
--- Load main last
-LoadURL(
-    "Main",
-    URLS.Main
-)
+local chunk, compileError = loadstring(compositeSource)
 
-print("[FFTM] Everything loaded successfully.")
+if not chunk then
+    error("[FFTM Loader] Combined compile failed: " .. tostring(compileError))
+end
+
+local ok, runError = pcall(chunk)
+
+if not ok then
+    error("[FFTM Loader] Combined runtime failed: " .. tostring(runError))
+end
+
+print("[FFTM] Single-chunk build loaded successfully.")
