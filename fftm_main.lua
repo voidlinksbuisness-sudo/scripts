@@ -1,4 +1,4 @@
--- FFTM_MAIN_BUILD = "2026-08-13-KEYBINDS-1"
+-- FFTM_MAIN_BUILD = "2026-08-13-KEYBINDS-REGFIX-1"
 --// WABI SABI UI
 loadstring(game:HttpGet("https://scripts.wabisabi.mom/wabi-sabi-ui-lib.lua"))()
 
@@ -404,7 +404,9 @@ end
 -- WABI SABI CONTROLS
 --==================================================
 
-local UIToggleESP = Main:AddToggle({
+local UIToggles = {}
+
+UIToggles.ESP = Main:AddToggle({
     Id = "esp",
     Title = "ESP",
     Default = false,
@@ -415,7 +417,7 @@ local UIToggleESP = Main:AddToggle({
     end
 })
 
-local UIToggleTracers = Main:AddToggle({
+UIToggles.Tracers = Main:AddToggle({
     Id = "tracers",
     Title = "Tracers",
     Default = false,
@@ -441,7 +443,7 @@ Main:AddSlider({
 
 --// PLAYER HEALTH
 
-local UITogglePlayerHealth = Main:AddToggle({
+UIToggles.PlayerHealth = Main:AddToggle({
     Id = "player_health",
     Title = "Player Health",
     Default = false,
@@ -454,7 +456,7 @@ local UITogglePlayerHealth = Main:AddToggle({
 
 --// SELF HEALTH
 
-local UIToggleSelfHealth = Main:AddToggle({
+UIToggles.SelfHealth = Main:AddToggle({
     Id = "self_health",
     Title = "Self Health",
     Default = false,
@@ -587,7 +589,7 @@ local TargetingTab   = SafeAddTab("Targeting", "crosshair")
 local ParryConfigTab = SafeAddTab("Parry Config", "settings")
 local ConfigTab      = SafeAddTab("Config", "settings")
 
-local UIToggleAutoParry = SafeAddToggle(AutoParryTab, {
+UIToggles.AutoParry = SafeAddToggle(AutoParryTab, {
     Id = "auto_parry",
     Title = "Auto Parry",
     Default = true,
@@ -596,7 +598,7 @@ local UIToggleAutoParry = SafeAddToggle(AutoParryTab, {
     end
 })
 
-local UIToggleAutoDodge = SafeAddToggle(AutoParryTab, {
+UIToggles.AutoDodge = SafeAddToggle(AutoParryTab, {
     Id = "auto_dodge",
     Title = "Auto Dodge / Heavy",
     Default = true,
@@ -605,7 +607,7 @@ local UIToggleAutoDodge = SafeAddToggle(AutoParryTab, {
     end
 })
 
-local UIToggleAutoPlay = SafeAddToggle(AutoParryTab, {
+UIToggles.AutoPlay = SafeAddToggle(AutoParryTab, {
     Id = "auto_play",
     Title = "Auto Play",
     Default = true,
@@ -614,7 +616,7 @@ local UIToggleAutoPlay = SafeAddToggle(AutoParryTab, {
     end
 })
 
-local UIToggleParryDebug = SafeAddToggle(AutoParryTab, {
+UIToggles.ParryDebug = SafeAddToggle(AutoParryTab, {
     Id = "parry_debug",
     Title = "Debug Parry",
     Default = false,
@@ -623,7 +625,7 @@ local UIToggleParryDebug = SafeAddToggle(AutoParryTab, {
     end
 })
 
-local UIToggleAutoTargetNearest = SafeAddToggle(TargetingTab, {
+UIToggles.AutoTargetNearest = SafeAddToggle(TargetingTab, {
     Id = "auto_target_nearest",
     Title = "Auto Target Nearest",
     Default = false,
@@ -632,7 +634,7 @@ local UIToggleAutoTargetNearest = SafeAddToggle(TargetingTab, {
     end
 })
 
-local UIToggleMultipleTargets = SafeAddToggle(TargetingTab, {
+UIToggles.MultipleTargets = SafeAddToggle(TargetingTab, {
     Id = "multiple_targets",
     Title = "Multiple Targets",
     Default = true,
@@ -641,7 +643,7 @@ local UIToggleMultipleTargets = SafeAddToggle(TargetingTab, {
     end
 })
 
-local UIToggleIncludeLocalCharacter = SafeAddToggle(TargetingTab, {
+UIToggles.IncludeLocalCharacter = SafeAddToggle(TargetingTab, {
     Id = "include_local_character",
     Title = "Include Local Character",
     Default = false,
@@ -650,7 +652,7 @@ local UIToggleIncludeLocalCharacter = SafeAddToggle(TargetingTab, {
     end
 })
 
-local UIToggleTargetFacingYou = SafeAddToggle(TargetingTab, {
+UIToggles.TargetFacingYou = SafeAddToggle(TargetingTab, {
     Id = "target_facing_you",
     Title = "Target Facing You",
     Default = false,
@@ -659,7 +661,7 @@ local UIToggleTargetFacingYou = SafeAddToggle(TargetingTab, {
     end
 })
 
-local UIToggleYouFacingTarget = SafeAddToggle(TargetingTab, {
+UIToggles.YouFacingTarget = SafeAddToggle(TargetingTab, {
     Id = "you_facing_target",
     Title = "You Facing Target",
     Default = true,
@@ -668,7 +670,7 @@ local UIToggleYouFacingTarget = SafeAddToggle(TargetingTab, {
     end
 })
 
-local UIToggleHeightMultiplier = SafeAddToggle(ParryConfigTab, {
+UIToggles.HeightMultiplier = SafeAddToggle(ParryConfigTab, {
     Id = "height_multiplier",
     Title = "Height Multiplier",
     Default = true,
@@ -677,7 +679,7 @@ local UIToggleHeightMultiplier = SafeAddToggle(ParryConfigTab, {
     end
 })
 
-local UITogglePingCompensation = SafeAddToggle(ParryConfigTab, {
+UIToggles.PingCompensation = SafeAddToggle(ParryConfigTab, {
     Id = "ping_compensation",
     Title = "Ping Compensation",
     Default = true,
@@ -2202,720 +2204,727 @@ SafeAddSlider(TargetingTab, {
 })
 
 
---==================================================
--- TOGGLE KEYBINDS
---==================================================
+local ProcessToggleKeybind = nil
 
-local ToggleKeybinds = {
-    ESP = "None",
-    Tracers = "None",
-    PlayerHealth = "None",
-    SelfHealth = "None",
+local function SetupConfigAndKeybinds()
+    --==================================================
+    -- TOGGLE KEYBINDS
+    --==================================================
 
-    AutoParry = "None",
-    AutoDodge = "None",
-    AutoPlay = "None",
-    ParryDebug = "None",
+    local ToggleKeybinds = {
+        ESP = "None",
+        Tracers = "None",
+        PlayerHealth = "None",
+        SelfHealth = "None",
 
-    AutoTargetNearest = "None",
-    MultipleTargets = "None",
-    IncludeLocalCharacter = "None",
-    TargetFacingYou = "None",
-    YouFacingTarget = "None",
+        AutoParry = "None",
+        AutoDodge = "None",
+        AutoPlay = "None",
+        ParryDebug = "None",
 
-    HeightMultiplier = "None",
-    PingCompensation = "None",
-}
+        AutoTargetNearest = "None",
+        MultipleTargets = "None",
+        IncludeLocalCharacter = "None",
+        TargetFacingYou = "None",
+        YouFacingTarget = "None",
 
-local KeybindOptions = {
-    "None",
+        HeightMultiplier = "None",
+        PingCompensation = "None",
+    }
 
-    "Q", "E", "R", "T", "Y", "U", "I", "O", "P",
-    "G", "H", "J", "K", "L",
-    "Z", "C", "V", "B", "N", "M",
+    local KeybindOptions = {
+        "None",
 
-    "One", "Two", "Three", "Four", "Five",
-    "Six", "Seven", "Eight", "Nine", "Zero",
+        "Q", "E", "R", "T", "Y", "U", "I", "O", "P",
+        "G", "H", "J", "K", "L",
+        "Z", "C", "V", "B", "N", "M",
 
-    "F1", "F2", "F3", "F4", "F5", "F6",
-    "F7", "F8", "F9", "F10", "F11", "F12",
+        "One", "Two", "Three", "Four", "Five",
+        "Six", "Seven", "Eight", "Nine", "Zero",
 
-    "LeftShift", "RightShift",
-    "LeftControl", "RightControl",
-    "LeftAlt", "RightAlt",
-    "Insert", "Home", "End",
-    "PageUp", "PageDown",
-}
+        "F1", "F2", "F3", "F4", "F5", "F6",
+        "F7", "F8", "F9", "F10", "F11", "F12",
 
-local function SetUIToggle(control, value)
-    if control ~= nil and type(control.Set) == "function" then
-        local ok = pcall(function()
-            control:Set(value)
+        "LeftShift", "RightShift",
+        "LeftControl", "RightControl",
+        "LeftAlt", "RightAlt",
+        "Insert", "Home", "End",
+        "PageUp", "PageDown",
+    }
+
+    local function SetUIToggle(control, value)
+        if control ~= nil and type(control.Set) == "function" then
+            local ok = pcall(function()
+                control:Set(value)
+            end)
+
+            if ok then
+                return true
+            end
+        end
+
+        return false
+    end
+
+    local function ToggleMainState(stateKey, uiControl)
+        local newValue = not (state[stateKey] == true)
+        state[stateKey] = newValue
+
+        SetUIToggle(uiControl, newValue)
+
+        if stateKey == "ESP" and not newValue then
+            hidePoolFrom(espBoxes, 1)
+        elseif stateKey == "Tracers" and not newValue then
+            hidePoolFrom(tracerLines, 1)
+        elseif stateKey == "PlayerHealth" and not newValue then
+            hidePoolFrom(healthTexts, 1)
+        elseif stateKey == "SelfHealth" and not newValue then
+            myHealthText.Visible = false
+        end
+    end
+
+    local function ToggleValueControl(valueControl, uiControl)
+        local oldValue = valueControl.Get()
+        local newValue = not (oldValue == true)
+
+        valueControl.Set(newValue)
+        SetUIToggle(uiControl, newValue)
+    end
+
+    local function ToggleIncludeLocal()
+        IncludeLocalCharacter = not IncludeLocalCharacter
+        SetUIToggle(UIToggles.IncludeLocalCharacter, IncludeLocalCharacter)
+    end
+
+    local ToggleKeybindActions = {
+        ESP = function()
+            ToggleMainState("ESP", UIToggles.ESP)
+        end,
+
+        Tracers = function()
+            ToggleMainState("Tracers", UIToggles.Tracers)
+        end,
+
+        PlayerHealth = function()
+            ToggleMainState("PlayerHealth", UIToggles.PlayerHealth)
+        end,
+
+        SelfHealth = function()
+            ToggleMainState("SelfHealth", UIToggles.SelfHealth)
+        end,
+
+        AutoParry = function()
+            ToggleValueControl(AutoParryToggle, UIToggles.AutoParry)
+        end,
+
+        AutoDodge = function()
+            ToggleValueControl(AutoDodgeToggle, UIToggles.AutoDodge)
+        end,
+
+        AutoPlay = function()
+            ToggleValueControl(AutoPlayToggle, UIToggles.AutoPlay)
+        end,
+
+        ParryDebug = function()
+            ToggleValueControl(ParryDebugToggle, UIToggles.ParryDebug)
+        end,
+
+        AutoTargetNearest = function()
+            ToggleValueControl(AutoTargetNearest, UIToggles.AutoTargetNearest)
+        end,
+
+        MultipleTargets = function()
+            ToggleValueControl(MultiTarget, UIToggles.MultipleTargets)
+        end,
+
+        IncludeLocalCharacter = function()
+            ToggleIncludeLocal()
+        end,
+
+        TargetFacingYou = function()
+            ToggleValueControl(TargetFacingYou, UIToggles.TargetFacingYou)
+        end,
+
+        YouFacingTarget = function()
+            ToggleValueControl(YouFacingTarget, UIToggles.YouFacingTarget)
+        end,
+
+        HeightMultiplier = function()
+            ToggleValueControl(HeightToggle, UIToggles.HeightMultiplier)
+        end,
+
+        PingCompensation = function()
+            ToggleValueControl(PingCompensateToggle, UIToggles.PingCompensation)
+        end,
+    }
+
+    local function KeyCodeName(input)
+        if input == nil or input.KeyCode == nil then
+            return nil
+        end
+
+        local ok, name = pcall(function()
+            return input.KeyCode.Name
         end)
 
         if ok then
-            return true
+            return name
         end
-    end
 
-    return false
-end
-
-local function ToggleMainState(stateKey, uiControl)
-    local newValue = not (state[stateKey] == true)
-    state[stateKey] = newValue
-
-    SetUIToggle(uiControl, newValue)
-
-    if stateKey == "ESP" and not newValue then
-        hidePoolFrom(espBoxes, 1)
-    elseif stateKey == "Tracers" and not newValue then
-        hidePoolFrom(tracerLines, 1)
-    elseif stateKey == "PlayerHealth" and not newValue then
-        hidePoolFrom(healthTexts, 1)
-    elseif stateKey == "SelfHealth" and not newValue then
-        myHealthText.Visible = false
-    end
-end
-
-local function ToggleValueControl(valueControl, uiControl)
-    local oldValue = valueControl.Get()
-    local newValue = not (oldValue == true)
-
-    valueControl.Set(newValue)
-    SetUIToggle(uiControl, newValue)
-end
-
-local function ToggleIncludeLocal()
-    IncludeLocalCharacter = not IncludeLocalCharacter
-    SetUIToggle(UIToggleIncludeLocalCharacter, IncludeLocalCharacter)
-end
-
-local ToggleKeybindActions = {
-    ESP = function()
-        ToggleMainState("ESP", UIToggleESP)
-    end,
-
-    Tracers = function()
-        ToggleMainState("Tracers", UIToggleTracers)
-    end,
-
-    PlayerHealth = function()
-        ToggleMainState("PlayerHealth", UITogglePlayerHealth)
-    end,
-
-    SelfHealth = function()
-        ToggleMainState("SelfHealth", UIToggleSelfHealth)
-    end,
-
-    AutoParry = function()
-        ToggleValueControl(AutoParryToggle, UIToggleAutoParry)
-    end,
-
-    AutoDodge = function()
-        ToggleValueControl(AutoDodgeToggle, UIToggleAutoDodge)
-    end,
-
-    AutoPlay = function()
-        ToggleValueControl(AutoPlayToggle, UIToggleAutoPlay)
-    end,
-
-    ParryDebug = function()
-        ToggleValueControl(ParryDebugToggle, UIToggleParryDebug)
-    end,
-
-    AutoTargetNearest = function()
-        ToggleValueControl(AutoTargetNearest, UIToggleAutoTargetNearest)
-    end,
-
-    MultipleTargets = function()
-        ToggleValueControl(MultiTarget, UIToggleMultipleTargets)
-    end,
-
-    IncludeLocalCharacter = function()
-        ToggleIncludeLocal()
-    end,
-
-    TargetFacingYou = function()
-        ToggleValueControl(TargetFacingYou, UIToggleTargetFacingYou)
-    end,
-
-    YouFacingTarget = function()
-        ToggleValueControl(YouFacingTarget, UIToggleYouFacingTarget)
-    end,
-
-    HeightMultiplier = function()
-        ToggleValueControl(HeightToggle, UIToggleHeightMultiplier)
-    end,
-
-    PingCompensation = function()
-        ToggleValueControl(PingCompensateToggle, UITogglePingCompensation)
-    end,
-}
-
-local function KeyCodeName(input)
-    if input == nil or input.KeyCode == nil then
         return nil
     end
 
-    local ok, name = pcall(function()
-        return input.KeyCode.Name
-    end)
+    ProcessToggleKeybind = function(input)
+        local pressedName = KeyCodeName(input)
 
-    if ok then
-        return name
-    end
-
-    return nil
-end
-
-local function ProcessToggleKeybind(input)
-    local pressedName = KeyCodeName(input)
-
-    if pressedName == nil or pressedName == "Unknown" then
-        return false
-    end
-
-    local triggered = false
-
-    for actionName, keyName in pairs(ToggleKeybinds) do
-        if keyName ~= "None" and keyName == pressedName then
-            local action = ToggleKeybindActions[actionName]
-
-            if type(action) == "function" then
-                action()
-                triggered = true
-            end
+        if pressedName == nil or pressedName == "Unknown" then
+            return false
         end
-    end
 
-    return triggered
-end
+        local triggered = false
 
-local function AddKeybindDropdown(id, title, actionName)
-    SafeAddDropdown(ConfigTab, {
-        Id = id,
-        Title = title,
-        Options = KeybindOptions,
-        Default = ToggleKeybinds[actionName],
+        for actionName, keyName in pairs(ToggleKeybinds) do
+            if keyName ~= "None" and keyName == pressedName then
+                local action = ToggleKeybindActions[actionName]
 
-        Callback = function(value)
-            ToggleKeybinds[actionName] = value
-            print("[Keybind] " .. title .. " -> " .. tostring(value))
-        end
-    })
-end
-
---==================================================
--- CONFIG / SAVED PRESETS
---==================================================
-
-local HttpService = game:GetService("HttpService")
-local PRESET_FILE = "fftm_presets.json"
-
-local Presets = {}
-local SelectedPresetSlot = "Slot 1"
-local CurrentTheme = "AmethystDark"
-
-local function CanUsePersistentFiles()
-    return type(writefile) == "function"
-        and type(readfile) == "function"
-        and type(isfile) == "function"
-end
-
-local function ReadPresetFile()
-    if not CanUsePersistentFiles() then
-        return
-    end
-
-    local okExists, exists = pcall(function()
-        return isfile(PRESET_FILE)
-    end)
-
-    if not okExists or not exists then
-        return
-    end
-
-    local okRead, raw = pcall(function()
-        return readfile(PRESET_FILE)
-    end)
-
-    if not okRead or type(raw) ~= "string" or raw == "" then
-        return
-    end
-
-    local okDecode, decoded = pcall(function()
-        return HttpService:JSONDecode(raw)
-    end)
-
-    if okDecode and type(decoded) == "table" then
-        Presets = decoded
-        print("[Config] Loaded saved preset file.")
-    end
-end
-
-local function WritePresetFile()
-    if not CanUsePersistentFiles() then
-        return false
-    end
-
-    local okEncode, raw = pcall(function()
-        return HttpService:JSONEncode(Presets)
-    end)
-
-    if not okEncode then
-        warn("[Config] Could not encode presets: " .. tostring(raw))
-        return false
-    end
-
-    local okWrite, err = pcall(function()
-        writefile(PRESET_FILE, raw)
-    end)
-
-    if not okWrite then
-        warn("[Config] Could not save presets: " .. tostring(err))
-        return false
-    end
-
-    return true
-end
-
-local function CopyAnimationTimings()
-    local timings = {}
-
-    for animationId, info in pairs(GameConfig) do
-        if type(info) == "table" then
-            local value = info.ReactionTime
-
-            if value == nil then
-                value = info.DefaultReactionTime
-            end
-
-            if type(value) == "number" then
-                timings[tostring(animationId)] = value
-            end
-        end
-    end
-
-    return timings
-end
-
-local function CapturePreset()
-    return {
-        Theme = CurrentTheme,
-
-        Visuals = {
-            ESP = state.ESP,
-            Tracers = state.Tracers,
-            TracerTransparency = state.TracerTransparency,
-            PlayerHealth = state.PlayerHealth,
-            SelfHealth = state.SelfHealth,
-        },
-
-        Combat = {
-            AutoParry = AutoParryToggle.Get(),
-            AutoDodge = AutoDodgeToggle.Get(),
-            AutoPlay = AutoPlayToggle.Get(),
-            ParryDebug = ParryDebugToggle.Get(),
-            PingCompensation = PingCompensateToggle.Get(),
-            HeightMultiplier = HeightToggle.Get(),
-
-            AutoTargetNearest = AutoTargetNearest.Get(),
-            MultipleTargets = MultiTarget.Get(),
-            IncludeLocalCharacter = IncludeLocalCharacter,
-            TargetFacingYou = TargetFacingYou.Get(),
-            YouFacingTarget = YouFacingTarget.Get(),
-
-            AutoParryRange = AutoParryRange,
-            MaxCycleRange = MaxCycleRange,
-            ProbabilityToParry = ProbabilityToParry,
-            ParryOffset = ParryOffset,
-            ParryWindow = ParryWindow,
-        },
-
-        AnimationTimings = CopyAnimationTimings(),
-
-        Keybinds = {
-            ESP = ToggleKeybinds.ESP,
-            Tracers = ToggleKeybinds.Tracers,
-            PlayerHealth = ToggleKeybinds.PlayerHealth,
-            SelfHealth = ToggleKeybinds.SelfHealth,
-
-            AutoParry = ToggleKeybinds.AutoParry,
-            AutoDodge = ToggleKeybinds.AutoDodge,
-            AutoPlay = ToggleKeybinds.AutoPlay,
-            ParryDebug = ToggleKeybinds.ParryDebug,
-
-            AutoTargetNearest = ToggleKeybinds.AutoTargetNearest,
-            MultipleTargets = ToggleKeybinds.MultipleTargets,
-            IncludeLocalCharacter = ToggleKeybinds.IncludeLocalCharacter,
-            TargetFacingYou = ToggleKeybinds.TargetFacingYou,
-            YouFacingTarget = ToggleKeybinds.YouFacingTarget,
-
-            HeightMultiplier = ToggleKeybinds.HeightMultiplier,
-            PingCompensation = ToggleKeybinds.PingCompensation,
-        },
-    }
-end
-
-local function ApplyAnimationTimings(timings)
-    if type(timings) ~= "table" then
-        return
-    end
-
-    for animationId, seconds in pairs(timings) do
-        local info = GameConfig[animationId]
-
-        if info == nil then
-            local numericId = tonumber(animationId)
-
-            if numericId ~= nil then
-                info = GameConfig[numericId]
+                if type(action) == "function" then
+                    action()
+                    triggered = true
+                end
             end
         end
 
-        if type(info) == "table" and type(seconds) == "number" then
-            info.ReactionTime = seconds
-            info.DefaultReactionTime = seconds
+        return triggered
+    end
 
-            local slider =
-                AnimationIdSliders[animationId]
-                or AnimationIdSliders[tonumber(animationId)]
+    local function AddKeybindDropdown(id, title, actionName)
+        SafeAddDropdown(ConfigTab, {
+            Id = id,
+            Title = title,
+            Options = KeybindOptions,
+            Default = ToggleKeybinds[actionName],
 
-            if slider ~= nil and type(slider.Set) == "function" then
-                pcall(function()
-                    slider:Set(
-                        math.floor(seconds * 1000 + 0.5)
-                    )
-                end)
+            Callback = function(value)
+                ToggleKeybinds[actionName] = value
+                print("[Keybind] " .. title .. " -> " .. tostring(value))
             end
-        end
-    end
-end
-
-local function ApplyPreset(preset)
-    if type(preset) ~= "table" then
-        return false
+        })
     end
 
-    local visuals = preset.Visuals
+    --==================================================
+    -- CONFIG / SAVED PRESETS
+    --==================================================
 
-    if type(visuals) == "table" then
-        if type(visuals.ESP) == "boolean" then
-            state.ESP = visuals.ESP
-        end
+    local HttpService = game:GetService("HttpService")
+    local PRESET_FILE = "fftm_presets.json"
 
-        if type(visuals.Tracers) == "boolean" then
-            state.Tracers = visuals.Tracers
-        end
+    local Presets = {}
+    local SelectedPresetSlot = "Slot 1"
+    local CurrentTheme = "AmethystDark"
 
-        if type(visuals.TracerTransparency) == "number" then
-            state.TracerTransparency = visuals.TracerTransparency
-        end
-
-        if type(visuals.PlayerHealth) == "boolean" then
-            state.PlayerHealth = visuals.PlayerHealth
-        end
-
-        if type(visuals.SelfHealth) == "boolean" then
-            state.SelfHealth = visuals.SelfHealth
-        end
+    local function CanUsePersistentFiles()
+        return type(writefile) == "function"
+            and type(readfile) == "function"
+            and type(isfile) == "function"
     end
 
-    local combat = preset.Combat
-
-    if type(combat) == "table" then
-        if type(combat.AutoParry) == "boolean" then
-            AutoParryToggle.Set(combat.AutoParry)
-        end
-
-        if type(combat.AutoDodge) == "boolean" then
-            AutoDodgeToggle.Set(combat.AutoDodge)
-        end
-
-        if type(combat.AutoPlay) == "boolean" then
-            AutoPlayToggle.Set(combat.AutoPlay)
-        end
-
-        if type(combat.ParryDebug) == "boolean" then
-            ParryDebugToggle.Set(combat.ParryDebug)
-        end
-
-        if type(combat.PingCompensation) == "boolean" then
-            PingCompensateToggle.Set(combat.PingCompensation)
-        end
-
-        if type(combat.HeightMultiplier) == "boolean" then
-            HeightToggle.Set(combat.HeightMultiplier)
-        end
-
-        if type(combat.AutoTargetNearest) == "boolean" then
-            AutoTargetNearest.Set(combat.AutoTargetNearest)
-        end
-
-        if type(combat.MultipleTargets) == "boolean" then
-            MultiTarget.Set(combat.MultipleTargets)
-        end
-
-        if type(combat.IncludeLocalCharacter) == "boolean" then
-            IncludeLocalCharacter = combat.IncludeLocalCharacter
-        end
-
-        if type(combat.TargetFacingYou) == "boolean" then
-            TargetFacingYou.Set(combat.TargetFacingYou)
-        end
-
-        if type(combat.YouFacingTarget) == "boolean" then
-            YouFacingTarget.Set(combat.YouFacingTarget)
-        end
-
-        if type(combat.AutoParryRange) == "number" then
-            AutoParryRange = combat.AutoParryRange
-        end
-
-        if type(combat.MaxCycleRange) == "number" then
-            MaxCycleRange = combat.MaxCycleRange
-        end
-
-        if type(combat.ProbabilityToParry) == "number" then
-            ProbabilityToParry = combat.ProbabilityToParry
-        end
-
-        if type(combat.ParryOffset) == "number" then
-            ParryOffset = combat.ParryOffset
-        end
-
-        if type(combat.ParryWindow) == "number" then
-            ParryWindow = combat.ParryWindow
-        end
-    end
-
-    if type(preset.Theme) == "string" then
-        CurrentTheme = preset.Theme
-
-        pcall(function()
-            Library:SetTheme(CurrentTheme)
-        end)
-    end
-
-    ApplyAnimationTimings(preset.AnimationTimings)
-
-    if type(preset.Keybinds) == "table" then
-        for actionName, keyName in pairs(preset.Keybinds) do
-            if ToggleKeybinds[actionName] ~= nil
-                and type(keyName) == "string" then
-
-                ToggleKeybinds[actionName] = keyName
-            end
-        end
-    end
-
-    return true
-end
-
-ReadPresetFile()
-
-SafeAddDropdown(ConfigTab, {
-    Id = "preset_slot",
-    Title = "Preset Slot",
-    Options = {
-        "Slot 1",
-        "Slot 2",
-        "Slot 3"
-    },
-    Default = "Slot 1",
-
-    Callback = function(value)
-        SelectedPresetSlot = value
-    end
-})
-
-
--- Toggle keybinds
-AddKeybindDropdown("kb_esp", "ESP Key", "ESP")
-AddKeybindDropdown("kb_tracers", "Tracers Key", "Tracers")
-AddKeybindDropdown("kb_player_health", "Player Health Key", "PlayerHealth")
-AddKeybindDropdown("kb_self_health", "Self Health Key", "SelfHealth")
-
-AddKeybindDropdown("kb_auto_parry", "Auto Parry Key", "AutoParry")
-AddKeybindDropdown("kb_auto_dodge", "Auto Dodge Key", "AutoDodge")
-AddKeybindDropdown("kb_auto_play", "Auto Play Key", "AutoPlay")
-AddKeybindDropdown("kb_parry_debug", "Debug Parry Key", "ParryDebug")
-
-AddKeybindDropdown(
-    "kb_auto_target",
-    "Auto Target Key",
-    "AutoTargetNearest"
-)
-
-AddKeybindDropdown(
-    "kb_multi_target",
-    "Multiple Targets Key",
-    "MultipleTargets"
-)
-
-AddKeybindDropdown(
-    "kb_include_local",
-    "Include Local Key",
-    "IncludeLocalCharacter"
-)
-
-AddKeybindDropdown(
-    "kb_target_facing",
-    "Target Facing You Key",
-    "TargetFacingYou"
-)
-
-AddKeybindDropdown(
-    "kb_you_facing",
-    "You Facing Target Key",
-    "YouFacingTarget"
-)
-
-AddKeybindDropdown(
-    "kb_height",
-    "Height Multiplier Key",
-    "HeightMultiplier"
-)
-
-AddKeybindDropdown(
-    "kb_ping",
-    "Ping Compensation Key",
-    "PingCompensation"
-)
-
-SafeAddButton(ConfigTab, {
-    Title = "Save Selected Preset",
-
-    Callback = function()
-        Presets[SelectedPresetSlot] = CapturePreset()
-
-        local persistent = WritePresetFile()
-
-        if persistent then
-            Notify(
-                "Config",
-                SelectedPresetSlot .. " saved.",
-                3
-            )
-        else
-            Notify(
-                "Config",
-                SelectedPresetSlot .. " saved for this session.",
-                4
-            )
-        end
-
-        print("[Config] Saved " .. SelectedPresetSlot)
-    end
-})
-
-SafeAddButton(ConfigTab, {
-    Title = "Load Selected Preset",
-
-    Callback = function()
-        local preset = Presets[SelectedPresetSlot]
-
-        if type(preset) ~= "table" then
-            Notify(
-                "Config",
-                SelectedPresetSlot .. " is empty.",
-                3
-            )
+    local function ReadPresetFile()
+        if not CanUsePersistentFiles() then
             return
         end
 
-        if ApplyPreset(preset) then
+        local okExists, exists = pcall(function()
+            return isfile(PRESET_FILE)
+        end)
+
+        if not okExists or not exists then
+            return
+        end
+
+        local okRead, raw = pcall(function()
+            return readfile(PRESET_FILE)
+        end)
+
+        if not okRead or type(raw) ~= "string" or raw == "" then
+            return
+        end
+
+        local okDecode, decoded = pcall(function()
+            return HttpService:JSONDecode(raw)
+        end)
+
+        if okDecode and type(decoded) == "table" then
+            Presets = decoded
+            print("[Config] Loaded saved preset file.")
+        end
+    end
+
+    local function WritePresetFile()
+        if not CanUsePersistentFiles() then
+            return false
+        end
+
+        local okEncode, raw = pcall(function()
+            return HttpService:JSONEncode(Presets)
+        end)
+
+        if not okEncode then
+            warn("[Config] Could not encode presets: " .. tostring(raw))
+            return false
+        end
+
+        local okWrite, err = pcall(function()
+            writefile(PRESET_FILE, raw)
+        end)
+
+        if not okWrite then
+            warn("[Config] Could not save presets: " .. tostring(err))
+            return false
+        end
+
+        return true
+    end
+
+    local function CopyAnimationTimings()
+        local timings = {}
+
+        for animationId, info in pairs(GameConfig) do
+            if type(info) == "table" then
+                local value = info.ReactionTime
+
+                if value == nil then
+                    value = info.DefaultReactionTime
+                end
+
+                if type(value) == "number" then
+                    timings[tostring(animationId)] = value
+                end
+            end
+        end
+
+        return timings
+    end
+
+    local function CapturePreset()
+        return {
+            Theme = CurrentTheme,
+
+            Visuals = {
+                ESP = state.ESP,
+                Tracers = state.Tracers,
+                TracerTransparency = state.TracerTransparency,
+                PlayerHealth = state.PlayerHealth,
+                SelfHealth = state.SelfHealth,
+            },
+
+            Combat = {
+                AutoParry = AutoParryToggle.Get(),
+                AutoDodge = AutoDodgeToggle.Get(),
+                AutoPlay = AutoPlayToggle.Get(),
+                ParryDebug = ParryDebugToggle.Get(),
+                PingCompensation = PingCompensateToggle.Get(),
+                HeightMultiplier = HeightToggle.Get(),
+
+                AutoTargetNearest = AutoTargetNearest.Get(),
+                MultipleTargets = MultiTarget.Get(),
+                IncludeLocalCharacter = IncludeLocalCharacter,
+                TargetFacingYou = TargetFacingYou.Get(),
+                YouFacingTarget = YouFacingTarget.Get(),
+
+                AutoParryRange = AutoParryRange,
+                MaxCycleRange = MaxCycleRange,
+                ProbabilityToParry = ProbabilityToParry,
+                ParryOffset = ParryOffset,
+                ParryWindow = ParryWindow,
+            },
+
+            AnimationTimings = CopyAnimationTimings(),
+
+            Keybinds = {
+                ESP = ToggleKeybinds.ESP,
+                Tracers = ToggleKeybinds.Tracers,
+                PlayerHealth = ToggleKeybinds.PlayerHealth,
+                SelfHealth = ToggleKeybinds.SelfHealth,
+
+                AutoParry = ToggleKeybinds.AutoParry,
+                AutoDodge = ToggleKeybinds.AutoDodge,
+                AutoPlay = ToggleKeybinds.AutoPlay,
+                ParryDebug = ToggleKeybinds.ParryDebug,
+
+                AutoTargetNearest = ToggleKeybinds.AutoTargetNearest,
+                MultipleTargets = ToggleKeybinds.MultipleTargets,
+                IncludeLocalCharacter = ToggleKeybinds.IncludeLocalCharacter,
+                TargetFacingYou = ToggleKeybinds.TargetFacingYou,
+                YouFacingTarget = ToggleKeybinds.YouFacingTarget,
+
+                HeightMultiplier = ToggleKeybinds.HeightMultiplier,
+                PingCompensation = ToggleKeybinds.PingCompensation,
+            },
+        }
+    end
+
+    local function ApplyAnimationTimings(timings)
+        if type(timings) ~= "table" then
+            return
+        end
+
+        for animationId, seconds in pairs(timings) do
+            local info = GameConfig[animationId]
+
+            if info == nil then
+                local numericId = tonumber(animationId)
+
+                if numericId ~= nil then
+                    info = GameConfig[numericId]
+                end
+            end
+
+            if type(info) == "table" and type(seconds) == "number" then
+                info.ReactionTime = seconds
+                info.DefaultReactionTime = seconds
+
+                local slider =
+                    AnimationIdSliders[animationId]
+                    or AnimationIdSliders[tonumber(animationId)]
+
+                if slider ~= nil and type(slider.Set) == "function" then
+                    pcall(function()
+                        slider:Set(
+                            math.floor(seconds * 1000 + 0.5)
+                        )
+                    end)
+                end
+            end
+        end
+    end
+
+    local function ApplyPreset(preset)
+        if type(preset) ~= "table" then
+            return false
+        end
+
+        local visuals = preset.Visuals
+
+        if type(visuals) == "table" then
+            if type(visuals.ESP) == "boolean" then
+                state.ESP = visuals.ESP
+            end
+
+            if type(visuals.Tracers) == "boolean" then
+                state.Tracers = visuals.Tracers
+            end
+
+            if type(visuals.TracerTransparency) == "number" then
+                state.TracerTransparency = visuals.TracerTransparency
+            end
+
+            if type(visuals.PlayerHealth) == "boolean" then
+                state.PlayerHealth = visuals.PlayerHealth
+            end
+
+            if type(visuals.SelfHealth) == "boolean" then
+                state.SelfHealth = visuals.SelfHealth
+            end
+        end
+
+        local combat = preset.Combat
+
+        if type(combat) == "table" then
+            if type(combat.AutoParry) == "boolean" then
+                AutoParryToggle.Set(combat.AutoParry)
+            end
+
+            if type(combat.AutoDodge) == "boolean" then
+                AutoDodgeToggle.Set(combat.AutoDodge)
+            end
+
+            if type(combat.AutoPlay) == "boolean" then
+                AutoPlayToggle.Set(combat.AutoPlay)
+            end
+
+            if type(combat.ParryDebug) == "boolean" then
+                ParryDebugToggle.Set(combat.ParryDebug)
+            end
+
+            if type(combat.PingCompensation) == "boolean" then
+                PingCompensateToggle.Set(combat.PingCompensation)
+            end
+
+            if type(combat.HeightMultiplier) == "boolean" then
+                HeightToggle.Set(combat.HeightMultiplier)
+            end
+
+            if type(combat.AutoTargetNearest) == "boolean" then
+                AutoTargetNearest.Set(combat.AutoTargetNearest)
+            end
+
+            if type(combat.MultipleTargets) == "boolean" then
+                MultiTarget.Set(combat.MultipleTargets)
+            end
+
+            if type(combat.IncludeLocalCharacter) == "boolean" then
+                IncludeLocalCharacter = combat.IncludeLocalCharacter
+            end
+
+            if type(combat.TargetFacingYou) == "boolean" then
+                TargetFacingYou.Set(combat.TargetFacingYou)
+            end
+
+            if type(combat.YouFacingTarget) == "boolean" then
+                YouFacingTarget.Set(combat.YouFacingTarget)
+            end
+
+            if type(combat.AutoParryRange) == "number" then
+                AutoParryRange = combat.AutoParryRange
+            end
+
+            if type(combat.MaxCycleRange) == "number" then
+                MaxCycleRange = combat.MaxCycleRange
+            end
+
+            if type(combat.ProbabilityToParry) == "number" then
+                ProbabilityToParry = combat.ProbabilityToParry
+            end
+
+            if type(combat.ParryOffset) == "number" then
+                ParryOffset = combat.ParryOffset
+            end
+
+            if type(combat.ParryWindow) == "number" then
+                ParryWindow = combat.ParryWindow
+            end
+        end
+
+        if type(preset.Theme) == "string" then
+            CurrentTheme = preset.Theme
+
+            pcall(function()
+                Library:SetTheme(CurrentTheme)
+            end)
+        end
+
+        ApplyAnimationTimings(preset.AnimationTimings)
+
+        if type(preset.Keybinds) == "table" then
+            for actionName, keyName in pairs(preset.Keybinds) do
+                if ToggleKeybinds[actionName] ~= nil
+                    and type(keyName) == "string" then
+
+                    ToggleKeybinds[actionName] = keyName
+                end
+            end
+        end
+
+        return true
+    end
+
+    ReadPresetFile()
+
+    SafeAddDropdown(ConfigTab, {
+        Id = "preset_slot",
+        Title = "Preset Slot",
+        Options = {
+            "Slot 1",
+            "Slot 2",
+            "Slot 3"
+        },
+        Default = "Slot 1",
+
+        Callback = function(value)
+            SelectedPresetSlot = value
+        end
+    })
+
+
+    -- Toggle keybinds
+    AddKeybindDropdown("kb_esp", "ESP Key", "ESP")
+    AddKeybindDropdown("kb_tracers", "Tracers Key", "Tracers")
+    AddKeybindDropdown("kb_player_health", "Player Health Key", "PlayerHealth")
+    AddKeybindDropdown("kb_self_health", "Self Health Key", "SelfHealth")
+
+    AddKeybindDropdown("kb_auto_parry", "Auto Parry Key", "AutoParry")
+    AddKeybindDropdown("kb_auto_dodge", "Auto Dodge Key", "AutoDodge")
+    AddKeybindDropdown("kb_auto_play", "Auto Play Key", "AutoPlay")
+    AddKeybindDropdown("kb_parry_debug", "Debug Parry Key", "ParryDebug")
+
+    AddKeybindDropdown(
+        "kb_auto_target",
+        "Auto Target Key",
+        "AutoTargetNearest"
+    )
+
+    AddKeybindDropdown(
+        "kb_multi_target",
+        "Multiple Targets Key",
+        "MultipleTargets"
+    )
+
+    AddKeybindDropdown(
+        "kb_include_local",
+        "Include Local Key",
+        "IncludeLocalCharacter"
+    )
+
+    AddKeybindDropdown(
+        "kb_target_facing",
+        "Target Facing You Key",
+        "TargetFacingYou"
+    )
+
+    AddKeybindDropdown(
+        "kb_you_facing",
+        "You Facing Target Key",
+        "YouFacingTarget"
+    )
+
+    AddKeybindDropdown(
+        "kb_height",
+        "Height Multiplier Key",
+        "HeightMultiplier"
+    )
+
+    AddKeybindDropdown(
+        "kb_ping",
+        "Ping Compensation Key",
+        "PingCompensation"
+    )
+
+    SafeAddButton(ConfigTab, {
+        Title = "Save Selected Preset",
+
+        Callback = function()
+            Presets[SelectedPresetSlot] = CapturePreset()
+
+            local persistent = WritePresetFile()
+
+            if persistent then
+                Notify(
+                    "Config",
+                    SelectedPresetSlot .. " saved.",
+                    3
+                )
+            else
+                Notify(
+                    "Config",
+                    SelectedPresetSlot .. " saved for this session.",
+                    4
+                )
+            end
+
+            print("[Config] Saved " .. SelectedPresetSlot)
+        end
+    })
+
+    SafeAddButton(ConfigTab, {
+        Title = "Load Selected Preset",
+
+        Callback = function()
+            local preset = Presets[SelectedPresetSlot]
+
+            if type(preset) ~= "table" then
+                Notify(
+                    "Config",
+                    SelectedPresetSlot .. " is empty.",
+                    3
+                )
+                return
+            end
+
+            if ApplyPreset(preset) then
+                Notify(
+                    "Config",
+                    SelectedPresetSlot .. " loaded.",
+                    3
+                )
+
+                print("[Config] Loaded " .. SelectedPresetSlot)
+            end
+        end
+    })
+
+    SafeAddButton(ConfigTab, {
+        Title = "Delete Selected Preset",
+
+        Callback = function()
+            Presets[SelectedPresetSlot] = nil
+            WritePresetFile()
+
             Notify(
                 "Config",
-                SelectedPresetSlot .. " loaded.",
+                SelectedPresetSlot .. " deleted.",
                 3
             )
 
-            print("[Config] Loaded " .. SelectedPresetSlot)
-        end
-    end
-})
-
-SafeAddButton(ConfigTab, {
-    Title = "Delete Selected Preset",
-
-    Callback = function()
-        Presets[SelectedPresetSlot] = nil
-        WritePresetFile()
-
-        Notify(
-            "Config",
-            SelectedPresetSlot .. " deleted.",
-            3
-        )
-
-        print("[Config] Deleted " .. SelectedPresetSlot)
-    end
-})
-
-SafeAddDropdown(ConfigTab, {
-    Id = "config_theme",
-    Title = "Theme",
-    Options = Library.Themes,
-    Default = "AmethystDark",
-
-    Callback = function(value)
-        CurrentTheme = value
-        Library:SetTheme(value)
-    end
-})
-
-SafeAddButton(ConfigTab, {
-    Title = "Clear Drawings",
-
-    Callback = function()
-        myHealthText.Visible = false
-        hidePoolFrom(espBoxes, 1)
-        hidePoolFrom(tracerLines, 1)
-        hidePoolFrom(healthTexts, 1)
-
-        Notify(
-            "Config",
-            "ESP drawings cleared.",
-            3
-        )
-    end
-})
-
-if CanUsePersistentFiles() then
-    print("[Config] Persistent presets enabled: " .. PRESET_FILE)
-else
-    print("[Config] File APIs unavailable; presets are session-only.")
-end
-
-do
-    local folders = GetAllFoldersInWorkspace()
-    local defaultFolder = nil
-
-    if workspace:FindFirstChild("Players") then
-        defaultFolder = "Players"
-    elseif workspace:FindFirstChild("Live") then
-        defaultFolder = "Live"
-    elseif #folders > 0 then
-        defaultFolder = folders[1]
-    end
-
-    if defaultFolder then
-        SelectedFolder = defaultFolder
-    end
-
-    SafeAddDropdown(TargetingTab, {
-        Id = "live_folder",
-        Title = "Live Folder",
-        Options = folders,
-        Default = defaultFolder,
-        Callback = function(value)
-            SelectedFolder = value
-            CycleEvent()
+            print("[Config] Deleted " .. SelectedPresetSlot)
         end
     })
+
+    SafeAddDropdown(ConfigTab, {
+        Id = "config_theme",
+        Title = "Theme",
+        Options = Library.Themes,
+        Default = "AmethystDark",
+
+        Callback = function(value)
+            CurrentTheme = value
+            Library:SetTheme(value)
+        end
+    })
+
+    SafeAddButton(ConfigTab, {
+        Title = "Clear Drawings",
+
+        Callback = function()
+            myHealthText.Visible = false
+            hidePoolFrom(espBoxes, 1)
+            hidePoolFrom(tracerLines, 1)
+            hidePoolFrom(healthTexts, 1)
+
+            Notify(
+                "Config",
+                "ESP drawings cleared.",
+                3
+            )
+        end
+    })
+
+    if CanUsePersistentFiles() then
+        print("[Config] Persistent presets enabled: " .. PRESET_FILE)
+    else
+        print("[Config] File APIs unavailable; presets are session-only.")
+    end
+
+    do
+        local folders = GetAllFoldersInWorkspace()
+        local defaultFolder = nil
+
+        if workspace:FindFirstChild("Players") then
+            defaultFolder = "Players"
+        elseif workspace:FindFirstChild("Live") then
+            defaultFolder = "Live"
+        elseif #folders > 0 then
+            defaultFolder = folders[1]
+        end
+
+        if defaultFolder then
+            SelectedFolder = defaultFolder
+        end
+
+        SafeAddDropdown(TargetingTab, {
+            Id = "live_folder",
+            Title = "Live Folder",
+            Options = folders,
+            Default = defaultFolder,
+            Callback = function(value)
+                SelectedFolder = value
+                CycleEvent()
+            end
+        })
+    end
+
 end
+
+SetupConfigAndKeybinds()
 
 Library:Notify({
     Title = "Loaded",
