@@ -66,8 +66,7 @@ local EDGES = {
 --     RelativeCFrame = CFrame,
 --     Lines = {},
 --     Label = Drawing,
---     DeathConnection = RBXScriptConnection?
--- }
+-- -- }
 local latchedPlayers = {}
 
 -- Used so the same temporary hitbox is only processed once.
@@ -104,12 +103,6 @@ local function destroyLatch(player)
 
     if not latch then
         return
-    end
-
-    if latch.DeathConnection then
-        pcall(function()
-            latch.DeathConnection:Disconnect()
-        end)
     end
 
     for _, line in ipairs(latch.Lines) do
@@ -266,13 +259,6 @@ local function latchPlayerFromHitbox(player, hitbox)
         Label = createLabel(),
     }
 
-    if humanoid.Died and type(humanoid.Died.Connect) == "function" then
-        latch.DeathConnection = humanoid.Died:Connect(function()
-            destroyLatch(player)
-            print("[StickyHitboxes] Removed dead player: " .. player.Name)
-        end)
-    end
-
     latchedPlayers[player] = latch
 
     print("[StickyHitboxes] Latched hitbox to " .. player.Name)
@@ -414,45 +400,13 @@ local function processTemporaryHitboxes()
 end
 
 --==================================================
--- MAIN LOOP
+-- MATCHA-SAFE POLLING RUNTIME
 --==================================================
 
-local renderConnection = RunService.RenderStepped:Connect(function()
-    if not ENABLED then
-        return
-    end
+-- Matcha does not consistently expose Roblox signals.
+-- This module uses polling only and contains no event connections.
 
-    local ok, err = pcall(function()
-        updateClearHotkey()
-        processTemporaryHitboxes()
-
-        -- Snapshot keys because updateLatch can destroy entries.
-        local players = {}
-
-        for player in pairs(latchedPlayers) do
-            table.insert(players, player)
-        end
-
-        for _, player in ipairs(players) do
-            local latch = latchedPlayers[player]
-
-            if latch then
-                updateLatch(player, latch)
-            end
-        end
-    end)
-
-    if not ok then
-        warn("[StickyHitboxes] " .. tostring(err))
-    end
-end)
-
---==================================================
--- MATCHA INPUT
---==================================================
-
--- Some Matcha builds do not expose UserInputService.InputBegan as a signal.
--- Poll IsKeyDown instead and trigger only on the transition from up -> down.
+local running = true
 local pWasDown = false
 local keyPollingSupported = true
 
@@ -460,8 +414,6 @@ local function updateClearHotkey()
     if not keyPollingSupported then
         return
     end
-
-    local isDown = false
 
     local ok, result = pcall(function()
         if type(UserInputService.IsKeyDown) ~= "function" then
@@ -473,11 +425,11 @@ local function updateClearHotkey()
 
     if not ok then
         keyPollingSupported = false
-        warn("[StickyHitboxes] Matcha does not support IsKeyDown; use StickyHitboxes.Clear() instead.")
+        warn("[StickyHitboxes] IsKeyDown unsupported; use the UI Clear button instead.")
         return
     end
 
-    isDown = result == true
+    local isDown = result == true
 
     if isDown and not pWasDown then
         clearAllLatches()
@@ -486,11 +438,66 @@ local function updateClearHotkey()
     pWasDown = isDown
 end
 
-if Players.PlayerRemoving and type(Players.PlayerRemoving.Connect) == "function" then
-    Players.PlayerRemoving:Connect(function(player)
-        destroyLatch(player)
-    end)
+local function cleanupDeadOrMissingPlayers()
+    local stale = {}
+
+    for player in pairs(latchedPlayers) do
+        local character = player and player.Character
+        local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+        local root = character and character:FindFirstChild("HumanoidRootPart")
+
+        if not player
+            or player.Parent ~= Players
+            or not character
+            or not humanoid
+            or humanoid.Health <= 0
+            or not root then
+
+            table.insert(stale, player)
+        end
+    end
+
+    for _, player in ipairs(stale) do
+        if player then
+            print("[StickyHitboxes] Removing stale/dead latch: " .. tostring(player.Name))
+            destroyLatch(player)
+        end
+    end
 end
+
+task.spawn(function()
+    while running do
+        task.wait()
+
+        if ENABLED then
+            local ok, err = pcall(function()
+                updateClearHotkey()
+                cleanupDeadOrMissingPlayers()
+                processTemporaryHitboxes()
+
+                local players = {}
+
+                for player in pairs(latchedPlayers) do
+                    table.insert(players, player)
+                end
+
+                for _, player in ipairs(players) do
+                    local latch = latchedPlayers[player]
+
+                    if latch then
+                        updateLatch(player, latch)
+                    end
+                end
+            end)
+
+            if not ok then
+                warn("[StickyHitboxes] " .. tostring(err))
+            end
+        else
+            pcall(updateClearHotkey)
+        end
+    end
+end)
 
 --==================================================
 -- MODULE API
@@ -526,13 +533,7 @@ end
 
 function StickyHitboxes.Destroy()
     ENABLED = false
-
-    if renderConnection then
-        renderConnection:Disconnect()
-        renderConnection = nil
-    end
-
-
+    running = false
     clearAllLatches()
 end
 
