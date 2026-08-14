@@ -532,16 +532,14 @@ local ParryDebugToggle     = NewValueControl(false)
 local PingCompensateToggle = NewValueControl(true)
 local AutoPlayToggle       = NewValueControl(true)
 
--- Dependencies are preloaded by loader.lua.
-local FFTM_BOOTSTRAP = ...
+-- Dependencies are injected as locals by loader.lua into this SAME Lua chunk.
+-- This avoids Matcha losing module return values between separate loadstring calls.
 
-if type(FFTM_BOOTSTRAP) ~= "table" then
-    error("[FFTM] Main was started without the loader dependency table.")
+if type(HitboxVisualizer) ~= "table" then
+    warn("[FFTM] Hitbox visualizer module is unavailable; hitbox controls will be disabled.")
 end
 
-local HitboxVisualizer = FFTM_BOOTSTRAP.HitboxVisualizer
-
-print("[FFTM] Main bootstrap dependencies accepted.")
+print("[FFTM] Single-chunk dependency scope active.")
 
 -- Extra tabs keep the original Wabi Sabi look.
 -- All UI calls are guarded so a bad tab object cannot stop the script.
@@ -743,11 +741,7 @@ SafeAddToggle(ParryConfigTab, {
     end
 })
 
--- Dependencies are downloaded once by loader.lua and passed directly into this chunk.
--- This avoids relying on _G/getgenv across isolated Matcha loadstring environments.
-local AnimationTrackerClass = FFTM_BOOTSTRAP.AnimationTrackerClass
-local ESP_Utility = FFTM_BOOTSTRAP.ESP_Utility
-
+-- Dependencies already exist as locals from loader.lua's combined chunk.
 if type(AnimationTrackerClass) ~= "table" or type(AnimationTrackerClass.new) ~= "function" then
     error("[FFTM] AnimationTracker dependency is missing or invalid.")
 end
@@ -756,8 +750,8 @@ if type(ESP_Utility) ~= "table" or type(ESP_Utility.NewTracker) ~= "function" th
     error("[FFTM] ESP Utility dependency is missing or invalid.")
 end
 
-if type(HitboxVisualizer) ~= "table" then
-    warn("[FFTM] Hitbox visualizer dependency is unavailable; Hitboxes UI will be disabled.")
+if type(GameConfig) ~= "table" then
+    error("[FFTM] GameConfig dependency is missing or invalid.")
 end
 
 local AnimationsLoggedCache = {}
@@ -769,12 +763,6 @@ local AnimationsLoggedOrder = {}
 -- ==========================================
 
 local GameName = "Gakuran"
-
-local GameConfig = FFTM_BOOTSTRAP.GameConfig
-
-if type(GameConfig) ~= "table" then
-    error("[FFTM] GameConfig dependency did not return a table.")
-end
 
 local IgnoreIds = {
 73766443218740,111699625251889,85823794654077,99661732639863,106268941365574,109816855387997,122561749929324,129805948180599,
