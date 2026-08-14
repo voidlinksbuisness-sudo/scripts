@@ -1,4 +1,4 @@
--- FFTM_MAIN_BUILD = "2026-08-13-MATCHA-FIX-4"
+-- FFTM_MAIN_BUILD = "2026-08-13-CONFIG-TAB-1"
 --// WABI SABI UI
 loadstring(game:HttpGet("https://scripts.wabisabi.mom/wabi-sabi-ui-lib.lua"))()
 
@@ -465,21 +465,6 @@ Main:AddToggle({
     end
 })
 
---// THEME DROPDOWN
-
-Main:AddDropdown({
-    Id = "theme",
-    Title = "Theme",
-    Options = Library.Themes,
-    Default = "Vynixu",
-
-    Callback = function(value)
-        Library:SetTheme(value)
-        print("Theme:", value)
-    end
-})
-
-
 --==================================================
 -- GAKURAN DEPENDENCY / STATE BRIDGE
 --==================================================
@@ -601,6 +586,64 @@ local AutoParryTab   = SafeAddTab("Auto Parry", "swords")
 local TargetingTab   = SafeAddTab("Targeting", "crosshair")
 local ParryConfigTab = SafeAddTab("Parry Config", "settings")
 local TimingTab      = SafeAddTab("Timing", "clock")
+local ConfigTab      = SafeAddTab("Config", "settings")
+
+--==================================================
+-- SIMPLE CONFIG TAB
+--==================================================
+
+SafeAddDropdown(ConfigTab, {
+    Id = "config_theme",
+    Title = "Theme",
+    Options = Library.Themes,
+    Default = "AmethystDark",
+
+    Callback = function(value)
+        Library:SetTheme(value)
+        print("[Config] Theme:", value)
+    end
+})
+
+SafeAddButton(ConfigTab, {
+    Title = "Reset Visual Settings",
+
+    Callback = function()
+        state.ESP = false
+        state.Tracers = false
+        state.TracerTransparency = 0
+        state.PlayerHealth = false
+        state.SelfHealth = false
+
+        myHealthText.Visible = false
+        hidePoolFrom(espBoxes, 1)
+        hidePoolFrom(tracerLines, 1)
+        hidePoolFrom(healthTexts, 1)
+
+        Notify(
+            "Config",
+            "Visual settings reset.",
+            3
+        )
+    end
+})
+
+SafeAddButton(ConfigTab, {
+    Title = "Clear Drawings",
+
+    Callback = function()
+        myHealthText.Visible = false
+        hidePoolFrom(espBoxes, 1)
+        hidePoolFrom(tracerLines, 1)
+        hidePoolFrom(healthTexts, 1)
+
+        Notify(
+            "Config",
+            "ESP drawings cleared.",
+            3
+        )
+    end
+})
+
 
 SafeAddToggle(AutoParryTab, {
     Id = "auto_parry",
