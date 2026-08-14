@@ -5,25 +5,6 @@ local LocalPlayer = Players.LocalPlayer
 
 local StickyHitboxes = {}
 
---==================================================
--- SINGLE-INSTANCE GENERATION GUARD
---==================================================
--- Every reload increments this Workspace value. Older copies of this module
--- see that their generation is stale, clear their drawings, and stop running.
-local generationMarker = Workspace:FindFirstChild("__FFTMStickyGeneration")
-
-if generationMarker == nil then
-    generationMarker = Instance.new("IntValue")
-    generationMarker.Name = "__FFTMStickyGeneration"
-    generationMarker.Value = 0
-    generationMarker.Parent = Workspace
-end
-
-generationMarker.Value = generationMarker.Value + 1
-local MY_GENERATION = generationMarker.Value
-
-print("[StickyHitboxes V7] Generation " .. tostring(MY_GENERATION))
-
 local ENABLED = true
 local RUNNING = true
 local MAX_DISTANCE = 20
@@ -157,7 +138,7 @@ local function clearAll()
         i = i + 1
     end
 
-    print("[StickyHitboxes V7] Cleared all sticky boxes")
+    print("[StickyHitboxes V8] Cleared all sticky boxes")
 end
 
 local function findPlayerFromOwner(hitbox)
@@ -233,7 +214,7 @@ local function findTarget(hitbox)
         if ownerCharacter ~= nil then
             local _, ownerPart = nearestBodyPartDistance(ownerCharacter, hitbox.Position)
 
-            print("[StickyHitboxes V7] Matched by Owner -> " .. tostring(ownerPlayer.Name))
+            print("[StickyHitboxes V8] Matched by Owner -> " .. tostring(ownerPlayer.Name))
             return ownerPlayer, ownerPart
         end
 
@@ -289,7 +270,7 @@ local function findTarget(hitbox)
 
         if bestDistance <= allowedDistance then
             print(
-                "[StickyHitboxes V7] Matched nearest -> "
+                "[StickyHitboxes V8] Matched nearest -> "
                 .. tostring(bestPlayer.Name)
                 .. " | part="
                 .. tostring(bestPartName)
@@ -312,7 +293,7 @@ local function findTarget(hitbox)
         end
 
         print(
-            "[StickyHitboxes V7] Closest was "
+            "[StickyHitboxes V8] Closest was "
             .. tostring(bestPlayer.Name)
             .. " at "
             .. tostring(math.floor(bestDistance * 100) / 100)
@@ -368,7 +349,7 @@ local function latchPlayer(player, hitbox, matchedPart)
     }
 
     print(
-        "[StickyHitboxes V7] LATCHED TO BODY -> "
+        "[StickyHitboxes V8] LATCHED TO BODY -> "
         .. tostring(player.Name)
         .. " | part="
         .. tostring(targetPart.Name)
@@ -535,7 +516,7 @@ local function processHitboxes()
 
     if folder == nil then
         if lastFolderState ~= false then
-            print("[StickyHitboxes V7] workspace.Hitboxes NOT FOUND")
+            print("[StickyHitboxes V8] workspace.Hitboxes NOT FOUND")
             lastFolderState = false
         end
 
@@ -543,7 +524,7 @@ local function processHitboxes()
     end
 
     if lastFolderState ~= true then
-        print("[StickyHitboxes V7] workspace.Hitboxes FOUND")
+        print("[StickyHitboxes V8] workspace.Hitboxes FOUND")
         lastFolderState = true
     end
 
@@ -568,7 +549,7 @@ local function processHitboxes()
                 seen[key] = true
 
                 print(
-                    "[StickyHitboxes V7] New temporary hitbox | pos="
+                    "[StickyHitboxes V8] New temporary hitbox | pos="
                     .. tostring(hitbox.Position)
                     .. " | size="
                     .. tostring(hitbox.Size)
@@ -605,16 +586,6 @@ task.spawn(function()
     while RUNNING do
         task.wait()
 
-        if generationMarker == nil
-            or generationMarker.Parent == nil
-            or generationMarker.Value ~= MY_GENERATION then
-
-            print("[StickyHitboxes V7] Older generation shutting down")
-            clearAll()
-            RUNNING = false
-            break
-        end
-
         if ENABLED then
             local ok, err = pcall(function()
                 cleanup()
@@ -641,7 +612,7 @@ task.spawn(function()
             end)
 
             if not ok then
-                warn("[StickyHitboxes V7] " .. tostring(err))
+                warn("[StickyHitboxes V8] " .. tostring(err))
             end
         end
     end
@@ -664,7 +635,7 @@ function StickyHitboxes.SetDetectionDistance(value)
 
     if numberValue ~= nil and numberValue > 0 then
         MAX_DISTANCE = numberValue
-        print("[StickyHitboxes V7] Detection range -> " .. tostring(MAX_DISTANCE))
+        print("[StickyHitboxes V8] Detection range -> " .. tostring(MAX_DISTANCE))
     end
 end
 
@@ -696,8 +667,8 @@ function StickyHitboxes.Destroy()
     clearAll()
 end
 
-print("[StickyHitboxes V7] SINGLE-GENERATION BODY-ANCHOR BUILD LOADED")
-print("[StickyHitboxes V7] Detection range = 20 studs")
-print("[StickyHitboxes V7] One active module generation; box follows torso/root")
+print("[StickyHitboxes V8] MATCHA BODY-ANCHOR BUILD LOADED")
+print("[StickyHitboxes V8] Detection range = 20 studs")
+print("[StickyHitboxes V8] One newest box per player; follows torso/root")
 
 return StickyHitboxes
