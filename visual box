@@ -43,6 +43,10 @@ local latched = {}
 local seen = {}
 local pWasDown = false
 local keyPollingSupported = true
+local DEBUG = true
+local lastFolderState = nil
+local lastCandidatePrint = 0
+local lastNoTargetPrint = 0
 
 local function getCharacterData(player)
     if player == nil then
@@ -357,10 +361,27 @@ local function processHitboxes()
     local folder = Workspace:FindFirstChild("Hitboxes")
 
     if folder == nil then
+        if DEBUG and lastFolderState ~= false then
+            print("[StickyHitboxes] workspace.Hitboxes not found")
+            lastFolderState = false
+        end
         return
     end
 
+    if DEBUG and lastFolderState ~= true then
+        print("[StickyHitboxes] workspace.Hitboxes detected")
+        lastFolderState = true
+    end
+
     local children = folder:GetChildren()
+
+    if DEBUG and #children > 0 then
+        local now = os.clock()
+        if now - lastCandidatePrint >= 1 then
+            print("[StickyHitboxes] Temporary hitbox parts visible: " .. tostring(#children))
+            lastCandidatePrint = now
+        end
+    end
     local current = {}
 
     local i = 1
@@ -382,7 +403,25 @@ local function processHitboxes()
                 local target = findTarget(hitbox)
 
                 if target ~= nil then
+                    print(
+                        "[StickyHitboxes] Detected hitbox -> "
+                        .. tostring(target.Name)
+                        .. " | size="
+                        .. tostring(hitbox.Size)
+                    )
                     latchPlayer(target, hitbox)
+                else
+                    if DEBUG then
+                        local now = os.clock()
+                        if now - lastNoTargetPrint >= 1 then
+                            print(
+                                "[StickyHitboxes] Saw hitbox but could not match it to a player within "
+                                .. tostring(MAX_DISTANCE)
+                                .. " studs"
+                            )
+                            lastNoTargetPrint = now
+                        end
+                    end
                 end
             end
         end
@@ -442,7 +481,7 @@ local function updateClearKey()
 
     if not ok then
         keyPollingSupported = false
-        warn("[StickyHitboxes] P key polling unsupported")
+        warn("[StickyHitboxes] P key polling unsupported; use Clear Sticky Hitboxes on Main")
         return
     end
 
@@ -519,6 +558,20 @@ end
 
 function StickyHitboxes.Clear()
     clearAll()
+end
+
+function StickyHitboxes.GetLatchedCount()
+    local count = 0
+
+    for _, _ in pairs(latched) do
+        count = count + 1
+    end
+
+    return count
+end
+
+function StickyHitboxes.SetDebug(value)
+    DEBUG = value == true
 end
 
 function StickyHitboxes.Destroy()
