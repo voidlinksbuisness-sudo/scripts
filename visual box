@@ -138,7 +138,7 @@ local function clearAll()
         i = i + 1
     end
 
-    print("[StickyHitboxes V5] Cleared all sticky boxes")
+    print("[StickyHitboxes V6] Cleared all sticky boxes")
 end
 
 local function findPlayerFromOwner(hitbox)
@@ -214,7 +214,7 @@ local function findTarget(hitbox)
         if ownerCharacter ~= nil then
             local _, ownerPart = nearestBodyPartDistance(ownerCharacter, hitbox.Position)
 
-            print("[StickyHitboxes V5] Matched by Owner -> " .. tostring(ownerPlayer.Name))
+            print("[StickyHitboxes V6] Matched by Owner -> " .. tostring(ownerPlayer.Name))
             return ownerPlayer, ownerPart
         end
 
@@ -270,7 +270,7 @@ local function findTarget(hitbox)
 
         if bestDistance <= allowedDistance then
             print(
-                "[StickyHitboxes V5] Matched nearest -> "
+                "[StickyHitboxes V6] Matched nearest -> "
                 .. tostring(bestPlayer.Name)
                 .. " | part="
                 .. tostring(bestPartName)
@@ -293,7 +293,7 @@ local function findTarget(hitbox)
         end
 
         print(
-            "[StickyHitboxes V5] Closest was "
+            "[StickyHitboxes V6] Closest was "
             .. tostring(bestPlayer.Name)
             .. " at "
             .. tostring(math.floor(bestDistance * 100) / 100)
@@ -349,7 +349,7 @@ local function latchPlayer(player, hitbox, matchedPart)
     }
 
     print(
-        "[StickyHitboxes V5] LATCHED TO BODY -> "
+        "[StickyHitboxes V6] LATCHED TO BODY -> "
         .. tostring(player.Name)
         .. " | part="
         .. tostring(targetPart.Name)
@@ -379,6 +379,81 @@ local function getWorldCorners(center, size)
     return result
 end
 
+local function getCharacterCenterAndSize(character)
+    -- Prefer Roblox's model bounding box when available.
+    local ok, boxCFrame, boxSize = pcall(function()
+        return character:GetBoundingBox()
+    end)
+
+    if ok and boxCFrame ~= nil and boxSize ~= nil then
+        return boxCFrame.Position, boxSize
+    end
+
+    -- Matcha-safe fallback: average visible BasePart positions and compute extents.
+    local children = character:GetChildren()
+    local count = 0
+    local sumX = 0
+    local sumY = 0
+    local sumZ = 0
+
+    local minX = math.huge
+    local minY = math.huge
+    local minZ = math.huge
+    local maxX = -math.huge
+    local maxY = -math.huge
+    local maxZ = -math.huge
+
+    local i = 1
+
+    while i <= #children do
+        local child = children[i]
+
+        if child:IsA("BasePart") then
+            local pos = child.Position
+            local half = child.Size * 0.5
+
+            count = count + 1
+            sumX = sumX + pos.X
+            sumY = sumY + pos.Y
+            sumZ = sumZ + pos.Z
+
+            local lowX = pos.X - half.X
+            local lowY = pos.Y - half.Y
+            local lowZ = pos.Z - half.Z
+            local highX = pos.X + half.X
+            local highY = pos.Y + half.Y
+            local highZ = pos.Z + half.Z
+
+            if lowX < minX then minX = lowX end
+            if lowY < minY then minY = lowY end
+            if lowZ < minZ then minZ = lowZ end
+            if highX > maxX then maxX = highX end
+            if highY > maxY then maxY = highY end
+            if highZ > maxZ then maxZ = highZ end
+        end
+
+        i = i + 1
+    end
+
+    if count == 0 then
+        return nil, nil
+    end
+
+    local center = Vector3.new(
+        (minX + maxX) * 0.5,
+        (minY + maxY) * 0.5,
+        (minZ + maxZ) * 0.5
+    )
+
+    local size = Vector3.new(
+        maxX - minX,
+        maxY - minY,
+        maxZ - minZ
+    )
+
+    return center, size
+end
+
 local function updateLatch(player, data)
     local character, humanoid, root = getCharacterData(player)
 
@@ -387,16 +462,15 @@ local function updateLatch(player, data)
         return
     end
 
-    local targetPart = character:FindFirstChild(data.TargetPartName)
+    local characterCenter, characterSize = getCharacterCenterAndSize(character)
 
-    if targetPart == nil or not targetPart:IsA("BasePart") then
-        targetPart = root
-        data.TargetPartName = root.Name
+    if characterCenter == nil then
+        characterCenter = root.Position
     end
 
-    -- Center the sticky box DIRECTLY on the matched body part.
-    -- We intentionally do not preserve the temporary hitbox's world offset.
-    local center = targetPart.Position
+    -- Use the temporary hitbox only for SIZE.
+    -- Position is always locked to the actual character center.
+    local center = characterCenter
     local corners = getWorldCorners(center, data.Size)
 
     local screen = {}
@@ -444,9 +518,15 @@ local function updateLatch(player, data)
         i = i + 1
     end
 
+    local labelHeight = data.Size.Y
+
+    if characterSize ~= nil and characterSize.Y > labelHeight then
+        labelHeight = characterSize.Y
+    end
+
     local topWorld = Vector3.new(
         center.X,
-        center.Y + data.Size.Y * 0.5 + 0.8,
+        center.Y + labelHeight * 0.5 + 0.8,
         center.Z
     )
 
@@ -491,7 +571,7 @@ local function processHitboxes()
 
     if folder == nil then
         if lastFolderState ~= false then
-            print("[StickyHitboxes V5] workspace.Hitboxes NOT FOUND")
+            print("[StickyHitboxes V6] workspace.Hitboxes NOT FOUND")
             lastFolderState = false
         end
 
@@ -499,7 +579,7 @@ local function processHitboxes()
     end
 
     if lastFolderState ~= true then
-        print("[StickyHitboxes V5] workspace.Hitboxes FOUND")
+        print("[StickyHitboxes V6] workspace.Hitboxes FOUND")
         lastFolderState = true
     end
 
@@ -524,7 +604,7 @@ local function processHitboxes()
                 seen[key] = true
 
                 print(
-                    "[StickyHitboxes V5] New temporary hitbox | pos="
+                    "[StickyHitboxes V6] New temporary hitbox | pos="
                     .. tostring(hitbox.Position)
                     .. " | size="
                     .. tostring(hitbox.Size)
@@ -587,7 +667,7 @@ task.spawn(function()
             end)
 
             if not ok then
-                warn("[StickyHitboxes V5] " .. tostring(err))
+                warn("[StickyHitboxes V6] " .. tostring(err))
             end
         end
     end
@@ -610,7 +690,7 @@ function StickyHitboxes.SetDetectionDistance(value)
 
     if numberValue ~= nil and numberValue > 0 then
         MAX_DISTANCE = numberValue
-        print("[StickyHitboxes V5] Detection range -> " .. tostring(MAX_DISTANCE))
+        print("[StickyHitboxes V6] Detection range -> " .. tostring(MAX_DISTANCE))
     end
 end
 
@@ -642,8 +722,8 @@ function StickyHitboxes.Destroy()
     clearAll()
 end
 
-print("[StickyHitboxes V5] BODY-LATCHED SINGLE-BOX BUILD LOADED")
-print("[StickyHitboxes V5] Detection range = 20 studs")
-print("[StickyHitboxes V5] Newest hitbox replaces old box for each player")
+print("[StickyHitboxes V6] CHARACTER-CENTER SINGLE-BOX BUILD LOADED")
+print("[StickyHitboxes V6] Detection range = 20 studs")
+print("[StickyHitboxes V6] Sticky box follows actual character center")
 
 return StickyHitboxes
