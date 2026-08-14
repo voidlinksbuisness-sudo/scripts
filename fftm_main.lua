@@ -532,12 +532,12 @@ local ParryDebugToggle     = NewValueControl(false)
 local PingCompensateToggle = NewValueControl(true)
 local AutoPlayToggle       = NewValueControl(true)
 
--- Extra tabs keep the original Wabi Sabi look.
--- Some Wabi builds return nil when an icon/tab definition is unsupported.
--- Fall back to the already-working Main tab instead of crashing.
-local function SafeAddTab(title, icon)
-    local tab
+-- Dependencies are preloaded by loader.lua.
+local HitboxVisualizer = _G.HitboxVisualizer
 
+-- Extra tabs keep the original Wabi Sabi look.
+-- All UI calls are guarded so a bad tab object cannot stop the script.
+local function SafeAddTab(title, icon)
     local ok, result = pcall(function()
         return Window:AddTab({
             Title = title,
@@ -545,16 +545,53 @@ local function SafeAddTab(title, icon)
         })
     end)
 
-    if ok then
-        tab = result
+    if ok and result then
+        return result
     end
 
-    if not tab then
-        warn("[UI] Failed to create tab '" .. tostring(title) .. "'; using Main tab instead.")
-        tab = Main
+    warn("[UI] Could not create tab '" .. tostring(title) .. "'. Falling back to Main.")
+    return Main
+end
+
+local function SafeControl(tab, methodName, config)
+    local target = tab
+
+    if not target or type(target[methodName]) ~= "function" then
+        target = Main
     end
 
-    return tab
+    if not target or type(target[methodName]) ~= "function" then
+        warn("[UI] Missing " .. tostring(methodName) .. " for control: " .. tostring(config and config.Title))
+        return nil
+    end
+
+    local ok, result = pcall(function()
+        return target[methodName](target, config)
+    end)
+
+    if not ok then
+        warn("[UI] " .. tostring(methodName) .. " failed for '" ..
+            tostring(config and config.Title) .. "': " .. tostring(result))
+        return nil
+    end
+
+    return result
+end
+
+local function SafeAddToggle(tab, config)
+    return SafeControl(tab, "AddToggle", config)
+end
+
+local function SafeAddSlider(tab, config)
+    return SafeControl(tab, "AddSlider", config)
+end
+
+local function SafeAddDropdown(tab, config)
+    return SafeControl(tab, "AddDropdown", config)
+end
+
+local function SafeAddButton(tab, config)
+    return SafeControl(tab, "AddButton", config)
 end
 
 local AutoParryTab   = SafeAddTab("Auto Parry", "swords")
@@ -562,12 +599,6 @@ local TargetingTab   = SafeAddTab("Targeting", "crosshair")
 local ParryConfigTab = SafeAddTab("Parry Config", "settings")
 local TimingTab      = SafeAddTab("Timing", "clock")
 local HitboxesTab    = SafeAddTab("Hitboxes", "box")
-
-AutoParryTab   = AutoParryTab   or Main
-TargetingTab   = TargetingTab   or Main
-ParryConfigTab = ParryConfigTab or Main
-TimingTab      = TimingTab      or Main
-HitboxesTab    = HitboxesTab    or Main
 
 --==================================================
 -- HITBOX VISUALIZER CONTROLS
@@ -577,7 +608,7 @@ if not HitboxVisualizer or type(HitboxVisualizer) ~= "table" then
     warn("[Hitboxes] Module did not return a table; hitbox controls disabled.")
 else
 
-HitboxesTab:AddToggle({
+SafeAddToggle(HitboxesTab, {
     Id = "show_hitboxes",
     Title = "Show Hitboxes",
     Default = false,
@@ -587,8 +618,7 @@ HitboxesTab:AddToggle({
     end
 })
 
-if HitboxesTab and HitboxesTab.AddButton then
-    HitboxesTab:AddButton({
+SafeAddButton(HitboxesTab, {
         Id = "clear_hitboxes",
         Title = "Clear All Hitbox Drawings",
 
@@ -602,12 +632,11 @@ if HitboxesTab and HitboxesTab.AddButton then
             })
         end
     })
-end
 
 end
 
 
-AutoParryTab:AddToggle({
+SafeAddToggle(AutoParryTab, {
     Id = "auto_parry",
     Title = "Auto Parry",
     Default = true,
@@ -616,7 +645,7 @@ AutoParryTab:AddToggle({
     end
 })
 
-AutoParryTab:AddToggle({
+SafeAddToggle(AutoParryTab, {
     Id = "auto_dodge",
     Title = "Auto Dodge / Heavy",
     Default = true,
@@ -625,7 +654,7 @@ AutoParryTab:AddToggle({
     end
 })
 
-AutoParryTab:AddToggle({
+SafeAddToggle(AutoParryTab, {
     Id = "auto_play",
     Title = "Auto Play",
     Default = true,
@@ -634,7 +663,7 @@ AutoParryTab:AddToggle({
     end
 })
 
-AutoParryTab:AddToggle({
+SafeAddToggle(AutoParryTab, {
     Id = "parry_debug",
     Title = "Debug Parry",
     Default = false,
@@ -643,7 +672,7 @@ AutoParryTab:AddToggle({
     end
 })
 
-TargetingTab:AddToggle({
+SafeAddToggle(TargetingTab, {
     Id = "auto_target_nearest",
     Title = "Auto Target Nearest",
     Default = false,
@@ -652,7 +681,7 @@ TargetingTab:AddToggle({
     end
 })
 
-TargetingTab:AddToggle({
+SafeAddToggle(TargetingTab, {
     Id = "multiple_targets",
     Title = "Multiple Targets",
     Default = true,
@@ -661,7 +690,7 @@ TargetingTab:AddToggle({
     end
 })
 
-TargetingTab:AddToggle({
+SafeAddToggle(TargetingTab, {
     Id = "include_local_character",
     Title = "Include Local Character",
     Default = false,
@@ -670,7 +699,7 @@ TargetingTab:AddToggle({
     end
 })
 
-TargetingTab:AddToggle({
+SafeAddToggle(TargetingTab, {
     Id = "target_facing_you",
     Title = "Target Facing You",
     Default = false,
@@ -679,7 +708,7 @@ TargetingTab:AddToggle({
     end
 })
 
-TargetingTab:AddToggle({
+SafeAddToggle(TargetingTab, {
     Id = "you_facing_target",
     Title = "You Facing Target",
     Default = true,
@@ -688,7 +717,7 @@ TargetingTab:AddToggle({
     end
 })
 
-ParryConfigTab:AddToggle({
+SafeAddToggle(ParryConfigTab, {
     Id = "height_multiplier",
     Title = "Height Multiplier",
     Default = true,
@@ -697,7 +726,7 @@ ParryConfigTab:AddToggle({
     end
 })
 
-ParryConfigTab:AddToggle({
+SafeAddToggle(ParryConfigTab, {
     Id = "ping_compensation",
     Title = "Ping Compensation",
     Default = true,
@@ -743,8 +772,6 @@ local AnimationTrackerClass =
 local ESP_Utility =
     _G.ESP_Utility
     or LoadURL("ESP Utility", FFTM_URLS.ESPUtility)
-
-local HitboxVisualizer = _G.HitboxVisualizer
 
 if not HitboxVisualizer then
     HitboxVisualizer = LoadURL(
@@ -2176,7 +2203,7 @@ local function BuildTimingControls()
                     .. "_"
                     .. _sanitizeTimingId(animationId)
 
-                local slider = TimingTab:AddSlider({
+                local slider = SafeAddSlider(TimingTab, {
                     Id = sliderId,
                     Title = style .. " | " .. displayName .. " (ms)",
                     Min = 0,
@@ -2206,7 +2233,7 @@ BuildTimingControls()
 -- WABI CONTROLS FOR GAKURAN RUNTIME VALUES
 --==================================================
 
-ParryConfigTab:AddSlider({
+SafeAddSlider(ParryConfigTab, {
     Id = "auto_parry_range",
     Title = "Auto Parry Range",
     Min = 1,
@@ -2217,7 +2244,7 @@ ParryConfigTab:AddSlider({
     end
 })
 
-ParryConfigTab:AddSlider({
+SafeAddSlider(ParryConfigTab, {
     Id = "probability_to_parry",
     Title = "Probability To Parry",
     Min = 1,
@@ -2228,7 +2255,7 @@ ParryConfigTab:AddSlider({
     end
 })
 
-ParryConfigTab:AddSlider({
+SafeAddSlider(ParryConfigTab, {
     Id = "parry_offset_ms",
     Title = "Parry Offset (ms)",
     Min = -100,
@@ -2239,7 +2266,7 @@ ParryConfigTab:AddSlider({
     end
 })
 
-ParryConfigTab:AddSlider({
+SafeAddSlider(ParryConfigTab, {
     Id = "parry_window_ms",
     Title = "Parry Window (ms)",
     Min = 0,
@@ -2250,7 +2277,7 @@ ParryConfigTab:AddSlider({
     end
 })
 
-TargetingTab:AddSlider({
+SafeAddSlider(TargetingTab, {
     Id = "max_cycle_range",
     Title = "Max Cycle Range",
     Min = 7,
@@ -2277,7 +2304,7 @@ do
         SelectedFolder = defaultFolder
     end
 
-    TargetingTab:AddDropdown({
+    SafeAddDropdown(TargetingTab, {
         Id = "live_folder",
         Title = "Live Folder",
         Options = folders,
