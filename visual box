@@ -1,269 +1,285 @@
--- FFTM Hitbox Visualizer
--- Adapted from the supplied hitbox visualizer script.
--- UI-independent module for use by fftm_main.lua.
+-- FFTM Fresh Player Hitboxes
+-- Draws a 2D box + name/distance for every OTHER player within 20 studs.
+-- Independent of workspace.Hitboxes and AttackName/Owner values.
 
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
-local Workspace = game:GetService("Workspace")
 
 local LocalPlayer = Players.LocalPlayer
 
-local HitboxVisualizer = {}
-HitboxVisualizer.__index = HitboxVisualizer
+local PlayerHitboxes = {}
+PlayerHitboxes.__index = PlayerHitboxes
 
-local enabled = false
-local activeVisuals = {}
+local MAX_DISTANCE = 20
+local enabled = true
+local trackers = {}
 
-local CORNER_OFFSETS = {
-    Vector3.new(-1,-1,-1), Vector3.new(1,-1,-1),
-    Vector3.new(1,1,-1),   Vector3.new(-1,1,-1),
-    Vector3.new(-1,-1,1),  Vector3.new(1,-1,1),
-    Vector3.new(1,1,1),    Vector3.new(-1,1,1),
-}
-
-local EDGES = {
-    {1,2},{2,3},{3,4},{4,1},
-    {5,6},{6,7},{7,8},{8,5},
-    {1,5},{2,6},{3,7},{4,8},
-}
-
-local function getColor(part)
-    local owner = part:FindFirstChild("Owner")
-
-    if not owner or not owner:IsA("StringValue") then
-        return Color3.fromRGB(255, 255, 0)
+local function getCharacterParts(player)
+    if not player then
+        return nil
     end
 
-    if owner.Value == LocalPlayer.Name or owner.Value == LocalPlayer.DisplayName then
-        return Color3.fromRGB(0, 255, 0)
+    local character = player.Character
+    if not character then
+        return nil
     end
 
-    if owner.Value == "" then
-        return Color3.fromRGB(255, 165, 0)
+    local humanoid = character:FindFirstChildOfClass("Humanoid")
+    local root = character:FindFirstChild("HumanoidRootPart")
+
+    if not humanoid or humanoid.Health <= 0 or not root then
+        return nil
     end
 
-    return Color3.fromRGB(255, 50, 50)
+    return character, humanoid, root
 end
 
-local function getCorners(part)
-    local cf = part.CFrame
-    local halfSize = part.Size / 2
-    local corners = {}
-
-    for i, offset in ipairs(CORNER_OFFSETS) do
-        corners[i] = cf:PointToWorldSpace(offset * halfSize)
-    end
-
-    return corners
+local function getLocalRoot()
+    local character = LocalPlayer.Character
+    return character and character:FindFirstChild("HumanoidRootPart")
 end
 
-local function createVisual(part)
-    local color = getColor(part)
-    local lines = {}
+local function createTracker(player)
+    local box = Drawing.new("Square")
+    box.Filled = false
+    box.Thickness = 2
+    box.Transparency = 1
+    box.Color = Color3.fromRGB(255, 80, 80)
+    box.Visible = false
+    box.ZIndex = 5
 
-    for i = 1, 12 do
-        local line = Drawing.new("Line")
-        line.Thickness = 1.5
-        line.Color = color
-        line.Visible = false
-        lines[i] = line
-    end
+    local name = Drawing.new("Text")
+    name.Size = 15
+    name.Center = true
+    name.Outline = true
+    name.Transparency = 1
+    name.Color = Color3.fromRGB(255, 255, 255)
+    name.Visible = false
+    name.ZIndex = 6
 
-    local label = Drawing.new("Text")
-    label.Center = true
-    label.Outline = true
-    label.Size = 13
-    label.Font = 0
-    label.Color = color
-    label.Visible = false
+    local distance = Drawing.new("Text")
+    distance.Size = 13
+    distance.Center = true
+    distance.Outline = true
+    distance.Transparency = 1
+    distance.Color = Color3.fromRGB(220, 220, 220)
+    distance.Visible = false
+    distance.ZIndex = 6
 
-    return {
-        lines = lines,
-        label = label,
-        part = part,
+    trackers[player] = {
+        Box = box,
+        Name = name,
+        Distance = distance,
     }
+
+    return trackers[player]
 end
 
-local function hideVisual(visual)
-    for _, line in ipairs(visual.lines) do
-        line.Visible = false
-    end
-    visual.label.Visible = false
-end
-
-local function updateVisual(visual, part)
-    if not part or not part.Parent then
-        hideVisual(visual)
+local function hideTracker(tracker)
+    if not tracker then
         return
     end
 
-    local color = getColor(part)
-    local corners = getCorners(part)
-    local anyOn = false
-
-    for i, edge in ipairs(EDGES) do
-        local c1 = corners[edge[1]]
-        local c2 = corners[edge[2]]
-
-        local p1, on1 = WorldToScreen(c1)
-        local p2, on2 = WorldToScreen(c2)
-
-        if p1 and p2 and on1 and on2 then
-            local line = visual.lines[i]
-            line.From = p1
-            line.To = p2
-            line.Color = color
-            line.Visible = true
-            anyOn = true
-        else
-            visual.lines[i].Visible = false
-        end
-    end
-
-    local topCenter = part.CFrame:PointToWorldSpace(
-        Vector3.new(0, part.Size.Y / 2 + 0.5, 0)
-    )
-
-    local labelPos, labelOnScreen = WorldToScreen(topCenter)
-
-    if labelPos and labelOnScreen and anyOn then
-        local owner = part:FindFirstChild("Owner")
-        local attackName = part:FindFirstChild("AttackName")
-
-        local ownerName =
-            owner and owner:IsA("StringValue")
-            and owner.Value
-            or "?"
-
-        local attack =
-            attackName and attackName:IsA("StringValue")
-            and attackName.Value
-            or "?"
-
-        visual.label.Position = labelPos
-        visual.label.Text = ownerName .. " | " .. attack
-        visual.label.Color = color
-        visual.label.Visible = true
-    else
-        visual.label.Visible = false
-    end
+    tracker.Box.Visible = false
+    tracker.Name.Visible = false
+    tracker.Distance.Visible = false
 end
 
-local function removeVisual(key)
-    local visual = activeVisuals[key]
-    if not visual then
+local function destroyTracker(player)
+    local tracker = trackers[player]
+    if not tracker then
         return
     end
 
-    for _, line in ipairs(visual.lines) do
-        pcall(function()
-            line:Remove()
-        end)
-    end
+    pcall(function() tracker.Box:Remove() end)
+    pcall(function() tracker.Name:Remove() end)
+    pcall(function() tracker.Distance:Remove() end)
 
-    pcall(function()
-        visual.label:Remove()
+    trackers[player] = nil
+end
+
+local function getCharacterScreenBounds(character)
+    local success, cf, size = pcall(function()
+        return character:GetBoundingBox()
     end)
 
-    activeVisuals[key] = nil
-end
-
-local function clearAll()
-    local keys = {}
-
-    for key in pairs(activeVisuals) do
-        table.insert(keys, key)
+    if not success or not cf or not size then
+        return nil
     end
 
-    for _, key in ipairs(keys) do
-        removeVisual(key)
+    local half = size * 0.5
+
+    local offsets = {
+        Vector3.new(-half.X, -half.Y, -half.Z),
+        Vector3.new( half.X, -half.Y, -half.Z),
+        Vector3.new( half.X,  half.Y, -half.Z),
+        Vector3.new(-half.X,  half.Y, -half.Z),
+        Vector3.new(-half.X, -half.Y,  half.Z),
+        Vector3.new( half.X, -half.Y,  half.Z),
+        Vector3.new( half.X,  half.Y,  half.Z),
+        Vector3.new(-half.X,  half.Y,  half.Z),
+    }
+
+    local minX = math.huge
+    local minY = math.huge
+    local maxX = -math.huge
+    local maxY = -math.huge
+    local visiblePoints = 0
+
+    for _, offset in ipairs(offsets) do
+        local worldPoint = cf:PointToWorldSpace(offset)
+        local screenPoint, onScreen = WorldToScreen(worldPoint)
+
+        if screenPoint and onScreen then
+            visiblePoints += 1
+
+            if screenPoint.X < minX then minX = screenPoint.X end
+            if screenPoint.Y < minY then minY = screenPoint.Y end
+            if screenPoint.X > maxX then maxX = screenPoint.X end
+            if screenPoint.Y > maxY then maxY = screenPoint.Y end
+        end
     end
+
+    if visiblePoints < 2 then
+        return nil
+    end
+
+    if minX == math.huge or minY == math.huge then
+        return nil
+    end
+
+    return minX, minY, maxX, maxY
 end
 
-local connection
+local function updatePlayer(player, localRoot)
+    if player == LocalPlayer then
+        return
+    end
 
-local function update()
+    local tracker = trackers[player] or createTracker(player)
+    local character, humanoid, root = getCharacterParts(player)
+
+    if not character or not humanoid or not root or not localRoot then
+        hideTracker(tracker)
+        return
+    end
+
+    local distance = (root.Position - localRoot.Position).Magnitude
+
+    if distance > MAX_DISTANCE then
+        hideTracker(tracker)
+        return
+    end
+
+    local minX, minY, maxX, maxY = getCharacterScreenBounds(character)
+
+    if not minX then
+        hideTracker(tracker)
+        return
+    end
+
+    local width = maxX - minX
+    local height = maxY - minY
+
+    if width <= 0 or height <= 0 then
+        hideTracker(tracker)
+        return
+    end
+
+    tracker.Box.Position = Vector2.new(minX, minY)
+    tracker.Box.Size = Vector2.new(width, height)
+    tracker.Box.Visible = true
+
+    tracker.Name.Text = player.DisplayName or player.Name
+    tracker.Name.Position = Vector2.new(
+        minX + width / 2,
+        minY - 18
+    )
+    tracker.Name.Visible = true
+
+    tracker.Distance.Text = string.format("%.1f studs", distance)
+    tracker.Distance.Position = Vector2.new(
+        minX + width / 2,
+        maxY + 2
+    )
+    tracker.Distance.Visible = true
+end
+
+local connection = RunService.RenderStepped:Connect(function()
     if not enabled then
-        if next(activeVisuals) ~= nil then
-            clearAll()
+        for _, tracker in pairs(trackers) do
+            hideTracker(tracker)
         end
         return
     end
 
-    local hitboxFolder = Workspace:FindFirstChild("Hitboxes")
+    local localRoot = getLocalRoot()
 
-    if not hitboxFolder then
-        clearAll()
-        return
+    for _, player in ipairs(Players:GetPlayers()) do
+        updatePlayer(player, localRoot)
     end
 
-    local current = {}
-
-    for _, part in ipairs(hitboxFolder:GetChildren()) do
-        if part:IsA("BasePart") then
-            -- Address is preferable in this executor environment, but fall back
-            -- to tostring() so the module does not depend on it.
-            local key = part.Address or tostring(part)
-            current[key] = true
-
-            local visual = activeVisuals[key]
-
-            if not visual then
-                visual = createVisual(part)
-                activeVisuals[key] = visual
-            end
-
-            updateVisual(visual, part)
+    -- Remove trackers for players who left.
+    for player in pairs(trackers) do
+        if player.Parent ~= Players then
+            destroyTracker(player)
         end
     end
+end)
 
-    local stale = {}
+Players.PlayerRemoving:Connect(function(player)
+    destroyTracker(player)
+end)
 
-    for key in pairs(activeVisuals) do
-        if not current[key] then
-            table.insert(stale, key)
-        end
-    end
-
-    for _, key in ipairs(stale) do
-        removeVisual(key)
-    end
-end
-
-function HitboxVisualizer.SetEnabled(value)
+function PlayerHitboxes.SetEnabled(value)
     enabled = value == true
 
     if not enabled then
-        clearAll()
+        for _, tracker in pairs(trackers) do
+            hideTracker(tracker)
+        end
     end
 end
 
-function HitboxVisualizer.IsEnabled()
+function PlayerHitboxes.IsEnabled()
     return enabled
 end
 
-function HitboxVisualizer.Clear()
-    clearAll()
+function PlayerHitboxes.SetMaxDistance(value)
+    value = tonumber(value)
+
+    if value and value > 0 then
+        MAX_DISTANCE = value
+    end
 end
 
-function HitboxVisualizer.Destroy()
+function PlayerHitboxes.GetMaxDistance()
+    return MAX_DISTANCE
+end
+
+function PlayerHitboxes.Clear()
+    local playersToRemove = {}
+
+    for player in pairs(trackers) do
+        table.insert(playersToRemove, player)
+    end
+
+    for _, player in ipairs(playersToRemove) do
+        destroyTracker(player)
+    end
+end
+
+function PlayerHitboxes.Destroy()
     enabled = false
-    clearAll()
 
     if connection then
         connection:Disconnect()
         connection = nil
     end
+
+    PlayerHitboxes.Clear()
 end
 
-connection = RunService.RenderStepped:Connect(function()
-    local ok, err = pcall(update)
+print("[PlayerHitboxes] Loaded | range = " .. tostring(MAX_DISTANCE) .. " studs")
 
-    if not ok then
-        warn("[HitboxVisualizer] " .. tostring(err))
-    end
-end)
-
-print("[HitboxVisualizer] Module loaded")
-
-return HitboxVisualizer
+return PlayerHitboxes
