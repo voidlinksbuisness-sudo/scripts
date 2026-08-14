@@ -689,7 +689,7 @@ ParryConfigTab:AddToggle({
     end
 })
 
-local FFTM_URLS = getgenv().FFTM_URLS or {}
+local FFTM_URLS = _G.FFTM_URLS or {}
 
 local function LoadURL(name, url)
     if not url or url == "" then
@@ -720,15 +720,15 @@ local function LoadURL(name, url)
 end
 
 local AnimationTrackerClass =
-    getgenv().AnimationTrackerClass
+    _G.AnimationTrackerClass
     or LoadURL("AnimationTracker", FFTM_URLS.AnimationTracker)
 
 local ESP_Utility =
-    getgenv().ESP_Utility
+    _G.ESP_Utility
     or LoadURL("ESP Utility", FFTM_URLS.ESPUtility)
 
 local HitboxVisualizer =
-    getgenv().HitboxVisualizer
+    _G.HitboxVisualizer
     or LoadURL("Hitbox Visualizer", FFTM_URLS.HitboxVisualizer)
 
 
@@ -743,7 +743,7 @@ local AnimationsLoggedOrder = {}
 local GameName = "Gakuran"
 
 local GameConfig =
-    getgenv().GameConfig
+    _G.GameConfig
     or LoadURL("Game Config", FFTM_URLS.GameConfig)
 
 local IgnoreIds = {
