@@ -1,6 +1,5 @@
 local Players = game:GetService("Players")
 local Workspace = game:GetService("Workspace")
-local UserInputService = game:GetService("UserInputService")
 
 local LocalPlayer = Players.LocalPlayer
 
@@ -9,9 +8,7 @@ local StickyHitboxes = {}
 local ENABLED = true
 local RUNNING = true
 local MAX_DISTANCE = 20
-local CLEAR_KEY = Enum.KeyCode.P
-local TARGET_PADDING = 3
-local IGNORE_LOCAL_PLAYER = true
+local MAX_MATCH_DISTANCE = 10
 
 local CORNERS = {
     Vector3.new(-1, -1, -1),
@@ -25,28 +22,15 @@ local CORNERS = {
 }
 
 local EDGES = {
-    {1, 2},
-    {2, 3},
-    {3, 4},
-    {4, 1},
-    {5, 6},
-    {6, 7},
-    {7, 8},
-    {8, 5},
-    {1, 5},
-    {2, 6},
-    {3, 7},
-    {4, 8}
+    {1,2},{2,3},{3,4},{4,1},
+    {5,6},{6,7},{7,8},{8,5},
+    {1,5},{2,6},{3,7},{4,8}
 }
 
 local latched = {}
 local seen = {}
-local pWasDown = false
-local keyPollingSupported = true
-local DEBUG = true
 local lastFolderState = nil
-local lastCandidatePrint = 0
-local lastNoTargetPrint = 0
+local lastDebugPrint = 0
 
 local function getCharacterData(player)
     if player == nil then
@@ -83,23 +67,23 @@ end
 
 local function makeLine()
     local line = Drawing.new("Line")
-    line.Thickness = 2
+    line.Thickness = 3
     line.Transparency = 1
-    line.Color = Color3.fromRGB(255, 70, 70)
+    line.Color = Color3.fromRGB(255, 40, 40)
     line.Visible = false
-    line.ZIndex = 10
+    line.ZIndex = 50
     return line
 end
 
 local function makeLabel()
     local label = Drawing.new("Text")
-    label.Size = 15
+    label.Size = 16
     label.Center = true
     label.Outline = true
     label.Transparency = 1
     label.Color = Color3.fromRGB(255, 255, 255)
     label.Visible = false
-    label.ZIndex = 11
+    label.ZIndex = 51
     return label
 end
 
@@ -114,9 +98,7 @@ local function hideLatch(data)
         i = i + 1
     end
 
-    if data.Label ~= nil then
-        data.Label.Visible = false
-    end
+    data.Label.Visible = false
 end
 
 local function destroyLatch(player)
@@ -128,17 +110,17 @@ local function destroyLatch(player)
     local i = 1
     while i <= #data.Lines do
         local line = data.Lines[i]
+
         pcall(function()
             line:Remove()
         end)
+
         i = i + 1
     end
 
-    if data.Label ~= nil then
-        pcall(function()
-            data.Label:Remove()
-        end)
-    end
+    pcall(function()
+        data.Label:Remove()
+    end)
 
     latched[player] = nil
 end
@@ -156,58 +138,115 @@ local function clearAll()
         i = i + 1
     end
 
-    print("[StickyHitboxes] Cleared")
+    print("[StickyHitboxes V4] Cleared all sticky boxes")
 end
 
-local function distancePointToBox(point, boxPosition, boxSize)
-    local half = boxSize * 0.5
-    local delta = point - boxPosition
+local function findPlayerFromOwner(hitbox)
+    local owner = hitbox:FindFirstChild("Owner")
 
-    local dx = math.abs(delta.X) - half.X
-    local dy = math.abs(delta.Y) - half.Y
-    local dz = math.abs(delta.Z) - half.Z
+    if owner == nil then
+        return nil
+    end
 
-    if dx < 0 then dx = 0 end
-    if dy < 0 then dy = 0 end
-    if dz < 0 then dz = 0 end
+    if owner.ClassName ~= "StringValue" then
+        return nil
+    end
 
-    return math.sqrt(dx * dx + dy * dy + dz * dz)
+    local ownerName = owner.Value
+
+    if ownerName == nil or ownerName == "" then
+        return nil
+    end
+
+    local players = Players:GetPlayers()
+    local i = 1
+
+    while i <= #players do
+        local player = players[i]
+
+        if player ~= LocalPlayer then
+            if player.Name == ownerName or player.DisplayName == ownerName then
+                local character, humanoid, root = getCharacterData(player)
+
+                if character ~= nil and humanoid ~= nil and root ~= nil then
+                    return player
+                end
+            end
+        end
+
+        i = i + 1
+    end
+
+    return nil
+end
+
+local function nearestBodyPartDistance(character, hitboxPosition)
+    local children = character:GetChildren()
+    local bestDistance = math.huge
+    local bestPart = nil
+
+    local i = 1
+
+    while i <= #children do
+        local child = children[i]
+
+        if child:IsA("BasePart") then
+            local distance = (child.Position - hitboxPosition).Magnitude
+
+            if distance < bestDistance then
+                bestDistance = distance
+                bestPart = child
+            end
+        end
+
+        i = i + 1
+    end
+
+    return bestDistance, bestPart
 end
 
 local function findTarget(hitbox)
+    local ownerPlayer = findPlayerFromOwner(hitbox)
+
+    if ownerPlayer ~= nil then
+        print("[StickyHitboxes V4] Matched by Owner -> " .. tostring(ownerPlayer.Name))
+        return ownerPlayer
+    end
+
     local localRoot = getLocalRoot()
+
     if localRoot == nil then
         return nil
     end
 
     local players = Players:GetPlayers()
     local bestPlayer = nil
-    local bestScore = math.huge
+    local bestDistance = math.huge
+    local bestPartName = "?"
 
     local i = 1
+
     while i <= #players do
         local player = players[i]
 
-        if not (IGNORE_LOCAL_PLAYER and player == LocalPlayer) then
+        if player ~= LocalPlayer then
             local character, humanoid, root = getCharacterData(player)
 
             if character ~= nil and humanoid ~= nil and root ~= nil then
-                local localDistance = (root.Position - localRoot.Position).Magnitude
+                local distanceFromLocal = (root.Position - localRoot.Position).Magnitude
 
-                if localDistance <= MAX_DISTANCE then
-                    local outsideDistance = distancePointToBox(
-                        root.Position,
-                        hitbox.Position,
-                        hitbox.Size
+                if distanceFromLocal <= MAX_DISTANCE then
+                    local bodyDistance, bodyPart = nearestBodyPartDistance(
+                        character,
+                        hitbox.Position
                     )
 
-                    if outsideDistance <= TARGET_PADDING then
-                        local centerDistance = (root.Position - hitbox.Position).Magnitude
-                        local score = outsideDistance * 10 + centerDistance
+                    if bodyDistance < bestDistance then
+                        bestDistance = bodyDistance
+                        bestPlayer = player
 
-                        if score < bestScore then
-                            bestScore = score
-                            bestPlayer = player
+                        if bodyPart ~= nil then
+                            bestPartName = bodyPart.Name
                         end
                     end
                 end
@@ -217,7 +256,33 @@ local function findTarget(hitbox)
         i = i + 1
     end
 
-    return bestPlayer
+    if bestPlayer ~= nil then
+        local halfSize = hitbox.Size.Magnitude * 0.5
+        local allowedDistance = MAX_MATCH_DISTANCE + halfSize
+
+        if bestDistance <= allowedDistance then
+            print(
+                "[StickyHitboxes V4] Matched nearest -> "
+                .. tostring(bestPlayer.Name)
+                .. " | part="
+                .. tostring(bestPartName)
+                .. " | distance="
+                .. tostring(math.floor(bestDistance * 100) / 100)
+            )
+
+            return bestPlayer
+        end
+
+        print(
+            "[StickyHitboxes V4] Closest was "
+            .. tostring(bestPlayer.Name)
+            .. " at "
+            .. tostring(math.floor(bestDistance * 100) / 100)
+            .. " studs from hitbox"
+        )
+    end
+
+    return nil
 end
 
 local function latchPlayer(player, hitbox)
@@ -227,11 +292,11 @@ local function latchPlayer(player, hitbox)
         return
     end
 
-    local existing = latched[player]
+    local data = latched[player]
 
-    if existing ~= nil then
-        existing.Size = hitbox.Size
-        existing.Offset = hitbox.Position - root.Position
+    if data ~= nil then
+        data.Size = hitbox.Size
+        data.Offset = hitbox.Position - root.Position
         return
     end
 
@@ -250,7 +315,12 @@ local function latchPlayer(player, hitbox)
         Label = makeLabel()
     }
 
-    print("[StickyHitboxes] Latched " .. tostring(player.Name))
+    print(
+        "[StickyHitboxes V4] LATCHED -> "
+        .. tostring(player.Name)
+        .. " | size="
+        .. tostring(hitbox.Size)
+    )
 end
 
 local function getWorldCorners(center, size)
@@ -258,6 +328,7 @@ local function getWorldCorners(center, size)
     local result = {}
 
     local i = 1
+
     while i <= #CORNERS do
         local sign = CORNERS[i]
 
@@ -281,45 +352,36 @@ local function updateLatch(player, data)
         return
     end
 
-    local boxCenter = root.Position + data.Offset
-    local worldCorners = getWorldCorners(boxCenter, data.Size)
-    local screenCorners = {}
-    local visibleCount = 0
+    local center = root.Position + data.Offset
+    local corners = getWorldCorners(center, data.Size)
 
+    local screen = {}
     local i = 1
-    while i <= #worldCorners do
-        local screenPoint, onScreen = WorldToScreen(worldCorners[i])
 
-        screenCorners[i] = {
-            Position = screenPoint,
+    while i <= #corners do
+        local point, onScreen = WorldToScreen(corners[i])
+
+        screen[i] = {
+            Point = point,
             Visible = onScreen == true
         }
-
-        if screenPoint ~= nil and onScreen == true then
-            visibleCount = visibleCount + 1
-        end
 
         i = i + 1
     end
 
-    if visibleCount < 2 then
-        hideLatch(data)
-        return
-    end
-
-    local anyLine = false
+    local visibleLines = 0
     i = 1
 
     while i <= #EDGES do
         local edge = EDGES[i]
-        local a = screenCorners[edge[1]]
-        local b = screenCorners[edge[2]]
+        local a = screen[edge[1]]
+        local b = screen[edge[2]]
         local line = data.Lines[i]
 
         local canDraw = false
 
         if a ~= nil and b ~= nil then
-            if a.Position ~= nil and b.Position ~= nil then
+            if a.Point ~= nil and b.Point ~= nil then
                 if a.Visible == true and b.Visible == true then
                     canDraw = true
                 end
@@ -327,10 +389,10 @@ local function updateLatch(player, data)
         end
 
         if canDraw then
-            line.From = a.Position
-            line.To = b.Position
+            line.From = a.Point
+            line.To = b.Point
             line.Visible = true
-            anyLine = true
+            visibleLines = visibleLines + 1
         else
             line.Visible = false
         end
@@ -338,24 +400,45 @@ local function updateLatch(player, data)
         i = i + 1
     end
 
-    if anyLine then
-        local topWorld = Vector3.new(
-            boxCenter.X,
-            boxCenter.Y + data.Size.Y * 0.5 + 0.6,
-            boxCenter.Z
-        )
+    local topWorld = Vector3.new(
+        center.X,
+        center.Y + data.Size.Y * 0.5 + 0.8,
+        center.Z
+    )
 
-        local topScreen, topVisible = WorldToScreen(topWorld)
+    local labelPoint, labelVisible = WorldToScreen(topWorld)
 
-        if topScreen ~= nil and topVisible == true then
-            data.Label.Position = topScreen
-            data.Label.Text = tostring(player.DisplayName) .. " [LOCKED]"
-            data.Label.Visible = true
-        else
-            data.Label.Visible = false
-        end
+    if labelPoint ~= nil and labelVisible == true then
+        data.Label.Position = labelPoint
+        data.Label.Text = tostring(player.DisplayName) .. " [HITBOX LOCKED]"
+        data.Label.Visible = true
     else
         data.Label.Visible = false
+    end
+
+    if visibleLines == 0 then
+        hideLatch(data)
+    end
+end
+
+local function cleanup()
+    local stale = {}
+
+    for player, _ in pairs(latched) do
+        local character, humanoid, root = getCharacterData(player)
+
+        if player.Parent ~= Players then
+            stale[#stale + 1] = player
+        elseif character == nil or humanoid == nil or root == nil then
+            stale[#stale + 1] = player
+        end
+    end
+
+    local i = 1
+
+    while i <= #stale do
+        destroyLatch(stale[i])
+        i = i + 1
     end
 end
 
@@ -363,30 +446,24 @@ local function processHitboxes()
     local folder = Workspace:FindFirstChild("Hitboxes")
 
     if folder == nil then
-        if DEBUG and lastFolderState ~= false then
-            print("[StickyHitboxes] workspace.Hitboxes not found")
+        if lastFolderState ~= false then
+            print("[StickyHitboxes V4] workspace.Hitboxes NOT FOUND")
             lastFolderState = false
         end
+
         return
     end
 
-    if DEBUG and lastFolderState ~= true then
-        print("[StickyHitboxes] workspace.Hitboxes detected")
+    if lastFolderState ~= true then
+        print("[StickyHitboxes V4] workspace.Hitboxes FOUND")
         lastFolderState = true
     end
 
     local children = folder:GetChildren()
-
-    if DEBUG and #children > 0 then
-        local now = os.clock()
-        if now - lastCandidatePrint >= 1 then
-            print("[StickyHitboxes] Temporary hitbox parts visible: " .. tostring(#children))
-            lastCandidatePrint = now
-        end
-    end
     local current = {}
 
     local i = 1
+
     while i <= #children do
         local hitbox = children[i]
 
@@ -402,28 +479,17 @@ local function processHitboxes()
             if seen[key] == nil then
                 seen[key] = true
 
+                print(
+                    "[StickyHitboxes V4] New temporary hitbox | pos="
+                    .. tostring(hitbox.Position)
+                    .. " | size="
+                    .. tostring(hitbox.Size)
+                )
+
                 local target = findTarget(hitbox)
 
                 if target ~= nil then
-                    print(
-                        "[StickyHitboxes] Detected hitbox -> "
-                        .. tostring(target.Name)
-                        .. " | size="
-                        .. tostring(hitbox.Size)
-                    )
                     latchPlayer(target, hitbox)
-                else
-                    if DEBUG then
-                        local now = os.clock()
-                        if now - lastNoTargetPrint >= 1 then
-                            print(
-                                "[StickyHitboxes] Saw hitbox but could not match it to a player within "
-                                .. tostring(MAX_DISTANCE)
-                                .. " studs"
-                            )
-                            lastNoTargetPrint = now
-                        end
-                    end
                 end
             end
         end
@@ -431,69 +497,20 @@ local function processHitboxes()
         i = i + 1
     end
 
-    local stale = {}
+    local staleSeen = {}
 
     for key, _ in pairs(seen) do
         if current[key] == nil then
-            stale[#stale + 1] = key
+            staleSeen[#staleSeen + 1] = key
         end
     end
 
     i = 1
-    while i <= #stale do
-        seen[stale[i]] = nil
+
+    while i <= #staleSeen do
+        seen[staleSeen[i]] = nil
         i = i + 1
     end
-end
-
-local function cleanupDeadPlayers()
-    local stale = {}
-
-    for player, _ in pairs(latched) do
-        local character, humanoid, root = getCharacterData(player)
-
-        if character == nil or humanoid == nil or root == nil then
-            stale[#stale + 1] = player
-        else
-            if player.Parent ~= Players then
-                stale[#stale + 1] = player
-            end
-        end
-    end
-
-    local i = 1
-    while i <= #stale do
-        destroyLatch(stale[i])
-        i = i + 1
-    end
-end
-
-local function updateClearKey()
-    if keyPollingSupported == false then
-        return
-    end
-
-    local ok, result = pcall(function()
-        if type(UserInputService.IsKeyDown) ~= "function" then
-            return false
-        end
-
-        return UserInputService:IsKeyDown(CLEAR_KEY)
-    end)
-
-    if not ok then
-        keyPollingSupported = false
-        warn("[StickyHitboxes] P key polling unsupported; use Clear Sticky Hitboxes on Main")
-        return
-    end
-
-    local isDown = result == true
-
-    if isDown and not pWasDown then
-        clearAll()
-    end
-
-    pWasDown = isDown
 end
 
 task.spawn(function()
@@ -502,8 +519,7 @@ task.spawn(function()
 
         if ENABLED then
             local ok, err = pcall(function()
-                updateClearKey()
-                cleanupDeadPlayers()
+                cleanup()
                 processHitboxes()
 
                 local players = {}
@@ -513,6 +529,7 @@ task.spawn(function()
                 end
 
                 local i = 1
+
                 while i <= #players do
                     local player = players[i]
                     local data = latched[player]
@@ -526,10 +543,8 @@ task.spawn(function()
             end)
 
             if not ok then
-                warn("[StickyHitboxes] " .. tostring(err))
+                warn("[StickyHitboxes V4] " .. tostring(err))
             end
-        else
-            pcall(updateClearKey)
         end
     end
 end)
@@ -551,11 +566,16 @@ function StickyHitboxes.SetDetectionDistance(value)
 
     if numberValue ~= nil and numberValue > 0 then
         MAX_DISTANCE = numberValue
+        print("[StickyHitboxes V4] Detection range -> " .. tostring(MAX_DISTANCE))
     end
 end
 
-function StickyHitboxes.GetDetectionDistance()
-    return MAX_DISTANCE
+function StickyHitboxes.SetMatchDistance(value)
+    local numberValue = tonumber(value)
+
+    if numberValue ~= nil and numberValue > 0 then
+        MAX_MATCH_DISTANCE = numberValue
+    end
 end
 
 function StickyHitboxes.Clear()
@@ -572,18 +592,14 @@ function StickyHitboxes.GetLatchedCount()
     return count
 end
 
-function StickyHitboxes.SetDebug(value)
-    DEBUG = value == true
-end
-
 function StickyHitboxes.Destroy()
     ENABLED = false
     RUNNING = false
     clearAll()
 end
 
-print("[StickyHitboxes] Matcha-safe NO-CFRAME latch build loaded")
-print("[StickyHitboxes] Detection range: " .. tostring(MAX_DISTANCE))
-print("[StickyHitboxes] Press P to clear latched boxes")
+print("[StickyHitboxes V4] ROBUST MATCHER LOADED")
+print("[StickyHitboxes V4] Detection range = 20 studs")
+print("[StickyHitboxes V4] Player matching checks every character BasePart")
 
 return StickyHitboxes
