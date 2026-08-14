@@ -1,270 +1,546 @@
-@@ -0,0 +1,269 @@
--- FFTM Hitbox Visualizer
--- Adapted from the supplied hitbox visualizer script.
--- UI-independent module for use by fftm_main.lua.
+-- FFTM Sticky Detected Hitboxes - Matcha
+--
+-- Behavior:
+-- 1. Watches workspace.Hitboxes for temporary hitbox BaseParts.
+-- 2. If one overlaps / is closest to another player's character within 20 studs,
+--    it captures that hitbox's size + offset relative to that player's root.
+-- 3. The same wireframe box then follows that exact player even after the
+--    original temporary hitbox disappears.
+-- 4. The sticky box is removed when that player dies/leaves.
+-- 5. Press P to clear every currently latched sticky box.
+--
+-- Designed for Matcha-style Drawing + WorldToScreen environments.
 
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
 local Workspace = game:GetService("Workspace")
 
 local LocalPlayer = Players.LocalPlayer
 
-local HitboxVisualizer = {}
-HitboxVisualizer.__index = HitboxVisualizer
+local StickyHitboxes = {}
+StickyHitboxes.__index = StickyHitboxes
 
-local enabled = false
-local activeVisuals = {}
+--==================================================
+-- CONFIG
+--==================================================
 
-local CORNER_OFFSETS = {
-    Vector3.new(-1,-1,-1), Vector3.new(1,-1,-1),
-    Vector3.new(1,1,-1),   Vector3.new(-1,1,-1),
-    Vector3.new(-1,-1,1),  Vector3.new(1,-1,1),
-    Vector3.new(1,1,1),    Vector3.new(-1,1,1),
+local ENABLED = true
+local MAX_DETECTION_DISTANCE = 20
+local CLEAR_KEY = Enum.KeyCode.P
+
+-- Extra padding used when deciding whether a temporary hitbox is "on" someone.
+local TARGET_PADDING = 3
+
+-- Set false if you also want your own character to be latchable.
+local IGNORE_LOCAL_PLAYER = true
+
+--==================================================
+-- DRAWING CONSTANTS
+--==================================================
+
+local CORNER_SIGNS = {
+    Vector3.new(-1, -1, -1),
+    Vector3.new( 1, -1, -1),
+    Vector3.new( 1,  1, -1),
+    Vector3.new(-1,  1, -1),
+
+    Vector3.new(-1, -1,  1),
+    Vector3.new( 1, -1,  1),
+    Vector3.new( 1,  1,  1),
+    Vector3.new(-1,  1,  1),
 }
 
 local EDGES = {
-    {1,2},{2,3},{3,4},{4,1},
-    {5,6},{6,7},{7,8},{8,5},
-    {1,5},{2,6},{3,7},{4,8},
+    {1, 2}, {2, 3}, {3, 4}, {4, 1},
+    {5, 6}, {6, 7}, {7, 8}, {8, 5},
+    {1, 5}, {2, 6}, {3, 7}, {4, 8},
 }
 
-local function getColor(part)
-    local owner = part:FindFirstChild("Owner")
+--==================================================
+-- STATE
+--==================================================
 
-    if not owner or not owner:IsA("StringValue") then
-        return Color3.fromRGB(255, 255, 0)
+-- [player] = {
+--     Size = Vector3,
+--     RelativeCFrame = CFrame,
+--     Lines = {},
+--     Label = Drawing,
+-- -- }
+local latchedPlayers = {}
+
+-- Used so the same temporary hitbox is only processed once.
+local seenHitboxes = {}
+
+--==================================================
+-- HELPERS
+--==================================================
+
+local function getCharacterData(player)
+    local character = player and player.Character
+
+    if not character then
+        return nil
     end
 
-    if owner.Value == LocalPlayer.Name or owner.Value == LocalPlayer.DisplayName then
-        return Color3.fromRGB(0, 255, 0)
+    local humanoid = character:FindFirstChildOfClass("Humanoid")
+    local root = character:FindFirstChild("HumanoidRootPart")
+
+    if not humanoid or humanoid.Health <= 0 or not root then
+        return nil
     end
 
-    if owner.Value == "" then
-        return Color3.fromRGB(255, 165, 0)
-    end
-
-    return Color3.fromRGB(255, 50, 50)
+    return character, humanoid, root
 end
 
-local function getCorners(part)
-    local cf = part.CFrame
-    local halfSize = part.Size / 2
-    local corners = {}
-
-    for i, offset in ipairs(CORNER_OFFSETS) do
-        corners[i] = cf:PointToWorldSpace(offset * halfSize)
-    end
-
-    return corners
+local function getLocalRoot()
+    local character = LocalPlayer.Character
+    return character and character:FindFirstChild("HumanoidRootPart")
 end
 
-local function createVisual(part)
-    local color = getColor(part)
-    local lines = {}
+local function destroyLatch(player)
+    local latch = latchedPlayers[player]
 
-    for i = 1, 12 do
-        local line = Drawing.new("Line")
-        line.Thickness = 1.5
-        line.Color = color
-        line.Visible = false
-        lines[i] = line
-    end
-
-    local label = Drawing.new("Text")
-    label.Center = true
-    label.Outline = true
-    label.Size = 13
-    label.Font = 0
-    label.Color = color
-    label.Visible = false
-
-    return {
-        lines = lines,
-        label = label,
-        part = part,
-    }
-end
-
-local function hideVisual(visual)
-    for _, line in ipairs(visual.lines) do
-        line.Visible = false
-    end
-    visual.label.Visible = false
-end
-
-local function updateVisual(visual, part)
-    if not part or not part.Parent then
-        hideVisual(visual)
+    if not latch then
         return
     end
 
-    local color = getColor(part)
-    local corners = getCorners(part)
-    local anyOn = false
-
-    for i, edge in ipairs(EDGES) do
-        local c1 = corners[edge[1]]
-        local c2 = corners[edge[2]]
-
-        local p1, on1 = WorldToScreen(c1)
-        local p2, on2 = WorldToScreen(c2)
-
-        if p1 and p2 and on1 and on2 then
-            local line = visual.lines[i]
-            line.From = p1
-            line.To = p2
-            line.Color = color
-            line.Visible = true
-            anyOn = true
-        else
-            visual.lines[i].Visible = false
-        end
-    end
-
-    local topCenter = part.CFrame:PointToWorldSpace(
-        Vector3.new(0, part.Size.Y / 2 + 0.5, 0)
-    )
-
-    local labelPos, labelOnScreen = WorldToScreen(topCenter)
-
-    if labelPos and labelOnScreen and anyOn then
-        local owner = part:FindFirstChild("Owner")
-        local attackName = part:FindFirstChild("AttackName")
-
-        local ownerName =
-            owner and owner:IsA("StringValue")
-            and owner.Value
-            or "?"
-
-        local attack =
-            attackName and attackName:IsA("StringValue")
-            and attackName.Value
-            or "?"
-
-        visual.label.Position = labelPos
-        visual.label.Text = ownerName .. " | " .. attack
-        visual.label.Color = color
-        visual.label.Visible = true
-    else
-        visual.label.Visible = false
-    end
-end
-
-local function removeVisual(key)
-    local visual = activeVisuals[key]
-    if not visual then
-        return
-    end
-
-    for _, line in ipairs(visual.lines) do
+    for _, line in ipairs(latch.Lines) do
         pcall(function()
             line:Remove()
         end)
     end
 
-    pcall(function()
-        visual.label:Remove()
+    if latch.Label then
+        pcall(function()
+            latch.Label:Remove()
+        end)
+    end
+
+    latchedPlayers[player] = nil
+end
+
+local function clearAllLatches()
+    local players = {}
+
+    for player in pairs(latchedPlayers) do
+        table.insert(players, player)
+    end
+
+    for _, player in ipairs(players) do
+        destroyLatch(player)
+    end
+
+    print("[StickyHitboxes] Cleared all latched players.")
+end
+
+local function createLines()
+    local lines = {}
+
+    for i = 1, 12 do
+        local line = Drawing.new("Line")
+        line.Thickness = 2
+        line.Transparency = 1
+        line.Color = Color3.fromRGB(255, 70, 70)
+        line.Visible = false
+        line.ZIndex = 10
+
+        lines[i] = line
+    end
+
+    return lines
+end
+
+local function createLabel()
+    local label = Drawing.new("Text")
+
+    label.Size = 15
+    label.Center = true
+    label.Outline = true
+    label.Transparency = 1
+    label.Color = Color3.fromRGB(255, 255, 255)
+    label.Visible = false
+    label.ZIndex = 11
+
+    return label
+end
+
+local function hideLatch(latch)
+    for _, line in ipairs(latch.Lines) do
+        line.Visible = false
+    end
+
+    latch.Label.Visible = false
+end
+
+-- Returns how far a world-space point is outside an oriented box.
+-- 0 means the point is inside the box.
+local function distanceFromPointToBox(point, boxCFrame, boxSize)
+    local localPoint = boxCFrame:PointToObjectSpace(point)
+    local half = boxSize * 0.5
+
+    local dx = math.max(math.abs(localPoint.X) - half.X, 0)
+    local dy = math.max(math.abs(localPoint.Y) - half.Y, 0)
+    local dz = math.max(math.abs(localPoint.Z) - half.Z, 0)
+
+    return math.sqrt(dx * dx + dy * dy + dz * dz)
+end
+
+-- Find the most likely player that the temporary hitbox is sitting on.
+local function findTargetForHitbox(hitbox)
+    local localRoot = getLocalRoot()
+
+    if not localRoot then
+        return nil
+    end
+
+    local bestPlayer = nil
+    local bestScore = math.huge
+
+    for _, player in ipairs(Players:GetPlayers()) do
+        if IGNORE_LOCAL_PLAYER and player == LocalPlayer then
+            continue
+        end
+
+        local character, humanoid, root = getCharacterData(player)
+
+        if character and humanoid and root then
+            -- Only care about nearby players.
+            local localDistance = (root.Position - localRoot.Position).Magnitude
+
+            if localDistance <= MAX_DETECTION_DISTANCE then
+                local outsideDistance = distanceFromPointToBox(
+                    root.Position,
+                    hitbox.CFrame,
+                    hitbox.Size
+                )
+
+                -- Root is either inside the hitbox or close enough to count.
+                if outsideDistance <= TARGET_PADDING then
+                    -- Prefer whoever is deepest / closest to the hitbox.
+                    local centerDistance = (root.Position - hitbox.Position).Magnitude
+                    local score = outsideDistance * 10 + centerDistance
+
+                    if score < bestScore then
+                        bestScore = score
+                        bestPlayer = player
+                    end
+                end
+            end
+        end
+    end
+
+    return bestPlayer
+end
+
+local function latchPlayerFromHitbox(player, hitbox)
+    local character, humanoid, root = getCharacterData(player)
+
+    if not character or not humanoid or not root then
+        return
+    end
+
+    -- If this player is already latched, update the captured geometry to the
+    -- newest detected hitbox rather than creating duplicate drawings.
+    local old = latchedPlayers[player]
+
+    if old then
+        old.Size = hitbox.Size
+        old.RelativeCFrame = root.CFrame:ToObjectSpace(hitbox.CFrame)
+
+        print("[StickyHitboxes] Updated latch for " .. player.Name)
+        return
+    end
+
+    local latch = {
+        Size = hitbox.Size,
+        RelativeCFrame = root.CFrame:ToObjectSpace(hitbox.CFrame),
+        Lines = createLines(),
+        Label = createLabel(),
+    }
+
+    latchedPlayers[player] = latch
+
+    print("[StickyHitboxes] Latched hitbox to " .. player.Name)
+end
+
+local function getWorldCorners(cframe, size)
+    local half = size * 0.5
+    local corners = {}
+
+    for i, sign in ipairs(CORNER_SIGNS) do
+        local offset = Vector3.new(
+            sign.X * half.X,
+            sign.Y * half.Y,
+            sign.Z * half.Z
+        )
+
+        corners[i] = cframe:PointToWorldSpace(offset)
+    end
+
+    return corners
+end
+
+local function updateLatch(player, latch)
+    local character, humanoid, root = getCharacterData(player)
+
+    if not character or not humanoid or not root then
+        destroyLatch(player)
+        return
+    end
+
+    -- Recreate the captured hitbox transform relative to the player's root.
+    local boxCFrame = root.CFrame * latch.RelativeCFrame
+    local corners = getWorldCorners(boxCFrame, latch.Size)
+
+    local projected = {}
+    local visibleCount = 0
+
+    for i, worldPoint in ipairs(corners) do
+        local screenPoint, onScreen = WorldToScreen(worldPoint)
+
+        projected[i] = {
+            Position = screenPoint,
+            Visible = onScreen == true
+        }
+
+        if screenPoint and onScreen then
+            visibleCount += 1
+        end
+    end
+
+    if visibleCount < 2 then
+        hideLatch(latch)
+        return
+    end
+
+    local anyLine = false
+
+    for i, edge in ipairs(EDGES) do
+        local a = projected[edge[1]]
+        local b = projected[edge[2]]
+        local line = latch.Lines[i]
+
+        if a
+            and b
+            and a.Position
+            and b.Position
+            and a.Visible
+            and b.Visible then
+
+            line.From = a.Position
+            line.To = b.Position
+            line.Visible = true
+            anyLine = true
+        else
+            line.Visible = false
+        end
+    end
+
+    if anyLine then
+        local topWorld = boxCFrame:PointToWorldSpace(
+            Vector3.new(0, latch.Size.Y * 0.5 + 0.6, 0)
+        )
+
+        local topScreen, topVisible = WorldToScreen(topWorld)
+
+        if topScreen and topVisible then
+            latch.Label.Position = topScreen
+            latch.Label.Text = player.DisplayName .. " [LOCKED]"
+            latch.Label.Visible = true
+        else
+            latch.Label.Visible = false
+        end
+    else
+        latch.Label.Visible = false
+    end
+end
+
+local function processTemporaryHitboxes()
+    local folder = Workspace:FindFirstChild("Hitboxes")
+
+    if not folder then
+        return
+    end
+
+    for _, hitbox in ipairs(folder:GetChildren()) do
+        if not hitbox:IsA("BasePart") then
+            continue
+        end
+
+        local key = hitbox.Address or tostring(hitbox)
+
+        if seenHitboxes[key] then
+            continue
+        end
+
+        seenHitboxes[key] = true
+
+        local target = findTargetForHitbox(hitbox)
+
+        if target then
+            latchPlayerFromHitbox(target, hitbox)
+        end
+    end
+
+    -- Garbage collect seen entries when temporary hitboxes disappear.
+    local currentlyAlive = {}
+
+    for _, hitbox in ipairs(folder:GetChildren()) do
+        if hitbox:IsA("BasePart") then
+            currentlyAlive[hitbox.Address or tostring(hitbox)] = true
+        end
+    end
+
+    for key in pairs(seenHitboxes) do
+        if not currentlyAlive[key] then
+            seenHitboxes[key] = nil
+        end
+    end
+end
+
+--==================================================
+-- MATCHA-SAFE POLLING RUNTIME
+--==================================================
+
+-- Matcha does not consistently expose Roblox signals.
+-- This module uses polling only and contains no event connections.
+
+local running = true
+local pWasDown = false
+local keyPollingSupported = true
+
+local function updateClearHotkey()
+    if not keyPollingSupported then
+        return
+    end
+
+    local ok, result = pcall(function()
+        if type(UserInputService.IsKeyDown) ~= "function" then
+            return false
+        end
+
+        return UserInputService:IsKeyDown(CLEAR_KEY)
     end)
 
-    activeVisuals[key] = nil
-end
-
-local function clearAll()
-    local keys = {}
-
-    for key in pairs(activeVisuals) do
-        table.insert(keys, key)
-    end
-
-    for _, key in ipairs(keys) do
-        removeVisual(key)
-    end
-end
-
-local connection
-
-local function update()
-    if not enabled then
-        if next(activeVisuals) ~= nil then
-            clearAll()
-        end
+    if not ok then
+        keyPollingSupported = false
+        warn("[StickyHitboxes] IsKeyDown unsupported; use the UI Clear button instead.")
         return
     end
 
-    local hitboxFolder = Workspace:FindFirstChild("Hitboxes")
+    local isDown = result == true
 
-    if not hitboxFolder then
-        clearAll()
-        return
+    if isDown and not pWasDown then
+        clearAllLatches()
     end
 
-    local current = {}
+    pWasDown = isDown
+end
 
-    for _, part in ipairs(hitboxFolder:GetChildren()) do
-        if part:IsA("BasePart") then
-            -- Address is preferable in this executor environment, but fall back
-            -- to tostring() so the module does not depend on it.
-            local key = part.Address or tostring(part)
-            current[key] = true
-
-            local visual = activeVisuals[key]
-
-            if not visual then
-                visual = createVisual(part)
-                activeVisuals[key] = visual
-            end
-
-            updateVisual(visual, part)
-        end
-    end
-
+local function cleanupDeadOrMissingPlayers()
     local stale = {}
 
-    for key in pairs(activeVisuals) do
-        if not current[key] then
-            table.insert(stale, key)
+    for player in pairs(latchedPlayers) do
+        local character = player and player.Character
+        local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+        local root = character and character:FindFirstChild("HumanoidRootPart")
+
+        if not player
+            or player.Parent ~= Players
+            or not character
+            or not humanoid
+            or humanoid.Health <= 0
+            or not root then
+
+            table.insert(stale, player)
         end
     end
 
-    for _, key in ipairs(stale) do
-        removeVisual(key)
+    for _, player in ipairs(stale) do
+        if player then
+            print("[StickyHitboxes] Removing stale/dead latch: " .. tostring(player.Name))
+            destroyLatch(player)
+        end
     end
 end
 
-function HitboxVisualizer.SetEnabled(value)
-    enabled = value == true
+task.spawn(function()
+    while running do
+        task.wait()
 
-    if not enabled then
-        clearAll()
-    end
-end
+        if ENABLED then
+            local ok, err = pcall(function()
+                updateClearHotkey()
+                cleanupDeadOrMissingPlayers()
+                processTemporaryHitboxes()
 
-function HitboxVisualizer.IsEnabled()
-    return enabled
-end
+                local players = {}
 
-function HitboxVisualizer.Clear()
-    clearAll()
-end
+                for player in pairs(latchedPlayers) do
+                    table.insert(players, player)
+                end
 
-function HitboxVisualizer.Destroy()
-    enabled = false
-    clearAll()
+                for _, player in ipairs(players) do
+                    local latch = latchedPlayers[player]
 
-    if connection then
-        connection:Disconnect()
-        connection = nil
-    end
-end
+                    if latch then
+                        updateLatch(player, latch)
+                    end
+                end
+            end)
 
-connection = RunService.RenderStepped:Connect(function()
-    local ok, err = pcall(update)
-
-    if not ok then
-        warn("[HitboxVisualizer] " .. tostring(err))
+            if not ok then
+                warn("[StickyHitboxes] " .. tostring(err))
+            end
+        else
+            pcall(updateClearHotkey)
+        end
     end
 end)
 
-print("[HitboxVisualizer] Module loaded")
+--==================================================
+-- MODULE API
+--==================================================
 
-return HitboxVisualizer
+function StickyHitboxes.SetEnabled(value)
+    ENABLED = value == true
+
+    if not ENABLED then
+        clearAllLatches()
+    end
+end
+
+function StickyHitboxes.IsEnabled()
+    return ENABLED
+end
+
+function StickyHitboxes.SetDetectionDistance(value)
+    value = tonumber(value)
+
+    if value and value > 0 then
+        MAX_DETECTION_DISTANCE = value
+    end
+end
+
+function StickyHitboxes.GetDetectionDistance()
+    return MAX_DETECTION_DISTANCE
+end
+
+function StickyHitboxes.Clear()
+    clearAllLatches()
+end
+
+function StickyHitboxes.Destroy()
+    ENABLED = false
+    running = false
+    clearAllLatches()
+end
+
+print(
+    "[StickyHitboxes] Loaded | Detect range = "
+    .. tostring(MAX_DETECTION_DISTANCE)
+    .. " studs | Press P to clear"
+)
+
+return StickyHitboxes
