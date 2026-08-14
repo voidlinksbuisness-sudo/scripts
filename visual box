@@ -138,7 +138,7 @@ local function clearAll()
         i = i + 1
     end
 
-    print("[StickyHitboxes V4] Cleared all sticky boxes")
+    print("[StickyHitboxes V5] Cleared all sticky boxes")
 end
 
 local function findPlayerFromOwner(hitbox)
@@ -209,8 +209,16 @@ local function findTarget(hitbox)
     local ownerPlayer = findPlayerFromOwner(hitbox)
 
     if ownerPlayer ~= nil then
-        print("[StickyHitboxes V4] Matched by Owner -> " .. tostring(ownerPlayer.Name))
-        return ownerPlayer
+        local ownerCharacter, ownerHumanoid, ownerRoot = getCharacterData(ownerPlayer)
+
+        if ownerCharacter ~= nil then
+            local _, ownerPart = nearestBodyPartDistance(ownerCharacter, hitbox.Position)
+
+            print("[StickyHitboxes V5] Matched by Owner -> " .. tostring(ownerPlayer.Name))
+            return ownerPlayer, ownerPart
+        end
+
+        return ownerPlayer, nil
     end
 
     local localRoot = getLocalRoot()
@@ -262,7 +270,7 @@ local function findTarget(hitbox)
 
         if bestDistance <= allowedDistance then
             print(
-                "[StickyHitboxes V4] Matched nearest -> "
+                "[StickyHitboxes V5] Matched nearest -> "
                 .. tostring(bestPlayer.Name)
                 .. " | part="
                 .. tostring(bestPartName)
@@ -270,11 +278,22 @@ local function findTarget(hitbox)
                 .. tostring(math.floor(bestDistance * 100) / 100)
             )
 
-            return bestPlayer
+            local bestCharacter = bestPlayer.Character
+            local bestPart = nil
+
+            if bestCharacter ~= nil then
+                local _, matchedPart = nearestBodyPartDistance(
+                    bestCharacter,
+                    hitbox.Position
+                )
+                bestPart = matchedPart
+            end
+
+            return bestPlayer, bestPart
         end
 
         print(
-            "[StickyHitboxes V4] Closest was "
+            "[StickyHitboxes V5] Closest was "
             .. tostring(bestPlayer.Name)
             .. " at "
             .. tostring(math.floor(bestDistance * 100) / 100)
@@ -282,21 +301,35 @@ local function findTarget(hitbox)
         )
     end
 
-    return nil
+    return nil, nil
 end
 
-local function latchPlayer(player, hitbox)
+local function latchPlayer(player, hitbox, matchedPart)
     local character, humanoid, root = getCharacterData(player)
 
     if character == nil or humanoid == nil or root == nil then
         return
     end
 
-    local data = latched[player]
+    -- Only the MOST RECENT detected hitbox for this player should exist.
+    -- Destroy all drawings from the previous latch before creating the new one.
+    destroyLatch(player)
 
-    if data ~= nil then
-        data.Size = hitbox.Size
-        data.Offset = hitbox.Position - root.Position
+    local targetPart = matchedPart
+
+    if targetPart == nil or targetPart.Parent ~= character then
+        targetPart = character:FindFirstChild("HumanoidRootPart")
+    end
+
+    if targetPart == nil then
+        targetPart = character:FindFirstChild("UpperTorso")
+    end
+
+    if targetPart == nil then
+        targetPart = character:FindFirstChild("Torso")
+    end
+
+    if targetPart == nil then
         return
     end
 
@@ -310,14 +343,16 @@ local function latchPlayer(player, hitbox)
 
     latched[player] = {
         Size = hitbox.Size,
-        Offset = hitbox.Position - root.Position,
+        TargetPartName = targetPart.Name,
         Lines = lines,
         Label = makeLabel()
     }
 
     print(
-        "[StickyHitboxes V4] LATCHED -> "
+        "[StickyHitboxes V5] LATCHED TO BODY -> "
         .. tostring(player.Name)
+        .. " | part="
+        .. tostring(targetPart.Name)
         .. " | size="
         .. tostring(hitbox.Size)
     )
@@ -352,7 +387,16 @@ local function updateLatch(player, data)
         return
     end
 
-    local center = root.Position + data.Offset
+    local targetPart = character:FindFirstChild(data.TargetPartName)
+
+    if targetPart == nil or not targetPart:IsA("BasePart") then
+        targetPart = root
+        data.TargetPartName = root.Name
+    end
+
+    -- Center the sticky box DIRECTLY on the matched body part.
+    -- We intentionally do not preserve the temporary hitbox's world offset.
+    local center = targetPart.Position
     local corners = getWorldCorners(center, data.Size)
 
     local screen = {}
@@ -447,7 +491,7 @@ local function processHitboxes()
 
     if folder == nil then
         if lastFolderState ~= false then
-            print("[StickyHitboxes V4] workspace.Hitboxes NOT FOUND")
+            print("[StickyHitboxes V5] workspace.Hitboxes NOT FOUND")
             lastFolderState = false
         end
 
@@ -455,7 +499,7 @@ local function processHitboxes()
     end
 
     if lastFolderState ~= true then
-        print("[StickyHitboxes V4] workspace.Hitboxes FOUND")
+        print("[StickyHitboxes V5] workspace.Hitboxes FOUND")
         lastFolderState = true
     end
 
@@ -480,16 +524,16 @@ local function processHitboxes()
                 seen[key] = true
 
                 print(
-                    "[StickyHitboxes V4] New temporary hitbox | pos="
+                    "[StickyHitboxes V5] New temporary hitbox | pos="
                     .. tostring(hitbox.Position)
                     .. " | size="
                     .. tostring(hitbox.Size)
                 )
 
-                local target = findTarget(hitbox)
+                local target, matchedPart = findTarget(hitbox)
 
                 if target ~= nil then
-                    latchPlayer(target, hitbox)
+                    latchPlayer(target, hitbox, matchedPart)
                 end
             end
         end
@@ -543,7 +587,7 @@ task.spawn(function()
             end)
 
             if not ok then
-                warn("[StickyHitboxes V4] " .. tostring(err))
+                warn("[StickyHitboxes V5] " .. tostring(err))
             end
         end
     end
@@ -566,7 +610,7 @@ function StickyHitboxes.SetDetectionDistance(value)
 
     if numberValue ~= nil and numberValue > 0 then
         MAX_DISTANCE = numberValue
-        print("[StickyHitboxes V4] Detection range -> " .. tostring(MAX_DISTANCE))
+        print("[StickyHitboxes V5] Detection range -> " .. tostring(MAX_DISTANCE))
     end
 end
 
@@ -598,8 +642,8 @@ function StickyHitboxes.Destroy()
     clearAll()
 end
 
-print("[StickyHitboxes V4] ROBUST MATCHER LOADED")
-print("[StickyHitboxes V4] Detection range = 20 studs")
-print("[StickyHitboxes V4] Player matching checks every character BasePart")
+print("[StickyHitboxes V5] BODY-LATCHED SINGLE-BOX BUILD LOADED")
+print("[StickyHitboxes V5] Detection range = 20 studs")
+print("[StickyHitboxes V5] Newest hitbox replaces old box for each player")
 
 return StickyHitboxes
