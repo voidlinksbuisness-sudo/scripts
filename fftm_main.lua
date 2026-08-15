@@ -1,4 +1,4 @@
--- FFTM_MAIN_BUILD = "2026-08-14-X-POLLING-FIX-6"
+-- FFTM_MAIN_BUILD = "2026-08-14-X-CONTEXTACTION-FIX-7"
 --// WABI SABI UI
 loadstring(game:HttpGet("https://scripts.wabisabi.mom/wabi-sabi-ui-lib.lua"))()
 
@@ -21,6 +21,7 @@ local Main = Window:AddTab({
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local UIS = game:GetService("UserInputService")
+local ContextActionService = game:GetService("ContextActionService")
 local SelectedFolder = nil
 local CycleKeybind = Enum.KeyCode.X
 
@@ -3146,6 +3147,15 @@ SetupPresetConfigUI()
 
 local function SetupTargetFolderUI()
     SafeAddButton(TargetingTab, {
+        Title = "Cycle Target Now",
+
+        Callback = function()
+            print("[Target] UI cycle button pressed")
+            CycleEvent(true)
+        end
+    })
+
+    SafeAddButton(TargetingTab, {
         Title = "Whitelist Selected Target(s)",
 
         Callback = function()
@@ -3240,6 +3250,34 @@ end
 
 SetupTargetFolderUI()
 
+local function SetupManualTargetContextAction()
+    local ok, err = pcall(function()
+        ContextActionService:UnbindAction("FFTM_ManualTargetCycle")
+
+        ContextActionService:BindAction(
+            "FFTM_ManualTargetCycle",
+            function(actionName, inputState, inputObject)
+                if inputState == Enum.UserInputState.Begin then
+                    print("[Target] ContextActionService detected X")
+                    CycleEvent(true)
+                end
+
+                return Enum.ContextActionResult.Pass
+            end,
+            false,
+            Enum.KeyCode.X
+        )
+    end)
+
+    if ok then
+        print("[Target] ContextActionService X binding installed")
+    else
+        warn("[Target] ContextActionService binding failed: " .. tostring(err))
+    end
+end
+
+SetupManualTargetContextAction()
+
 Library:Notify({
     Title = "Loaded",
     Content = "Wabi visuals + Gakuran dependencies loaded.",
@@ -3321,6 +3359,23 @@ local function IsManualCycleKeyDown()
 
     if ok and down then
         return true
+    end
+
+    -- Alternate Roblox polling path.
+    local keysOk, pressedKeys = pcall(function()
+        return UIS:GetKeysPressed()
+    end)
+
+    if keysOk and type(pressedKeys) == "table" then
+        for _, inputObject in ipairs(pressedKeys) do
+            local keyOk, keyCode = pcall(function()
+                return inputObject.KeyCode
+            end)
+
+            if keyOk and keyCode == CycleKeybind then
+                return true
+            end
+        end
     end
 
     -- Matcha fallback if UserInputService polling is unavailable.
