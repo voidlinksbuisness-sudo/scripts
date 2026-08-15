@@ -1,4 +1,4 @@
--- FFTM_MAIN_BUILD = "2026-08-14-TARGET-MARKER-WHITELIST-1"
+-- FFTM_MAIN_BUILD = "2026-08-14-TARGET-MARKER-WHITELIST-MATCHA-2"
 --// WABI SABI UI
 loadstring(game:HttpGet("https://scripts.wabisabi.mom/wabi-sabi-ui-lib.lua"))()
 
@@ -1178,12 +1178,38 @@ local TargetSelectionState = {
     LastSelected = {},
 }
 
+local function FindPlayerForCharacter(character)
+    if not character then
+        return nil
+    end
+
+    local ok, playerList = pcall(function()
+        return Players:GetPlayers()
+    end)
+
+    if not ok or type(playerList) ~= "table" then
+        return nil
+    end
+
+    for _, player in ipairs(playerList) do
+        local okCharacter, playerCharacter = pcall(function()
+            return player.Character
+        end)
+
+        if okCharacter and playerCharacter == character then
+            return player
+        end
+    end
+
+    return nil
+end
+
 local function GetCharacterWhitelistKey(character)
     if not character then
         return nil
     end
 
-    local player = Players:GetPlayerFromCharacter(character)
+    local player = FindPlayerForCharacter(character)
 
     if player then
         return "uid:" .. tostring(player.UserId)
@@ -1197,7 +1223,7 @@ local function GetCharacterDisplayName(character)
         return "Unknown"
     end
 
-    local player = Players:GetPlayerFromCharacter(character)
+    local player = FindPlayerForCharacter(character)
 
     if player then
         if player.DisplayName and player.DisplayName ~= player.Name then
