@@ -1,4 +1,4 @@
--- FFTM_MAIN_BUILD = "2026-08-13-KEYBINDS-SPLIT-2"
+-- FFTM_MAIN_BUILD = "2026-08-14-TARGET-MARKER-WHITELIST-1"
 --// WABI SABI UI
 loadstring(game:HttpGet("https://scripts.wabisabi.mom/wabi-sabi-ui-lib.lua"))()
 
@@ -9,7 +9,7 @@ local Window = Library:CreateWindow({
     SubTitle = "v1.1 PRESETS",
     Size = Vector2.new(580, 460),
     Resize = true,
-    Theme = "Amethyst Dark",
+    Theme = "AmethystDark",
 })
 
 local Main = Window:AddTab({
@@ -1171,6 +1171,138 @@ local lastCharacter = nil
 
 local SelectAllMode = true 
 local TargetCharacters = {}
+
+local TargetSelectionState = {
+    Markers = {},
+    Whitelist = {},
+    LastSelected = {},
+}
+
+local function GetCharacterWhitelistKey(character)
+    if not character then
+        return nil
+    end
+
+    local player = Players:GetPlayerFromCharacter(character)
+
+    if player then
+        return "uid:" .. tostring(player.UserId)
+    end
+
+    return "name:" .. tostring(character.Name)
+end
+
+local function GetCharacterDisplayName(character)
+    if not character then
+        return "Unknown"
+    end
+
+    local player = Players:GetPlayerFromCharacter(character)
+
+    if player then
+        if player.DisplayName and player.DisplayName ~= player.Name then
+            return player.DisplayName .. " (@" .. player.Name .. ")"
+        end
+
+        return player.Name
+    end
+
+    return character.Name
+end
+
+local function IsCharacterWhitelisted(character)
+    local key = GetCharacterWhitelistKey(character)
+    return key ~= nil and TargetSelectionState.Whitelist[key] == true
+end
+
+local function SetCharacterWhitelisted(character, enabled)
+    local key = GetCharacterWhitelistKey(character)
+
+    if not key then
+        return false
+    end
+
+    if enabled then
+        TargetSelectionState.Whitelist[key] = true
+    else
+        TargetSelectionState.Whitelist[key] = nil
+    end
+
+    return true
+end
+
+local function ClearSelectedMarkers()
+    for character, markerGui in pairs(TargetSelectionState.Markers) do
+        if markerGui then
+            pcall(function()
+                markerGui:Destroy()
+            end)
+        end
+
+        TargetSelectionState.Markers[character] = nil
+    end
+end
+
+local function AddSelectedMarker(character)
+    if not character then
+        return
+    end
+
+    local adornee =
+        character:FindFirstChild("Head")
+        or character:FindFirstChild("HumanoidRootPart")
+
+    if not adornee then
+        return
+    end
+
+    local billboard = Instance.new("BillboardGui")
+    billboard.Name = "FFTM_SelectedTarget"
+    billboard.Adornee = adornee
+    billboard.AlwaysOnTop = true
+    billboard.Size = UDim2.new(0, 150, 0, 34)
+    billboard.StudsOffset = Vector3.new(0, 3.4, 0)
+    billboard.Parent = adornee
+
+    local label = Instance.new("TextLabel")
+    label.Name = "Label"
+    label.BackgroundTransparency = 1
+    label.Size = UDim2.fromScale(1, 1)
+    label.Font = Enum.Font.GothamBold
+    label.Text = "SELECTED"
+    label.TextColor3 = Color3.fromRGB(255, 80, 80)
+    label.TextStrokeTransparency = 0.25
+    label.TextScaled = true
+    label.Parent = billboard
+
+    TargetSelectionState.Markers[character] = billboard
+end
+
+local function CopyWhitelist()
+    local copy = {}
+
+    for key, enabled in pairs(TargetSelectionState.Whitelist) do
+        if enabled == true then
+            copy[key] = true
+        end
+    end
+
+    return copy
+end
+
+local function ApplyWhitelist(saved)
+    table.clear(TargetSelectionState.Whitelist)
+
+    if type(saved) ~= "table" then
+        return
+    end
+
+    for key, enabled in pairs(saved) do
+        if type(key) == "string" and enabled == true then
+            TargetSelectionState.Whitelist[key] = true
+        end
+    end
+end
 local EspTrackers = {} 
 
 local PendingReactionTimestamp = nil 
@@ -1980,21 +2112,38 @@ local function ClearAllEspTrackers()
 end
 
 local function UpdateTargetCharacters(charactersList)
-    -- Clean up old trackers and clear previous target list
+    if #charactersList > 0 then
+        table.clear(TargetSelectionState.LastSelected)
+
+        for _, character in ipairs(charactersList) do
+            TargetSelectionState.LastSelected[#TargetSelectionState.LastSelected + 1] =
+                character
+        end
+    end
+
     ClearAllEspTrackers()
+    ClearSelectedMarkers()
     table.clear(TargetCharacters)
 
-    -- Populate new targets
-    for _, character in charactersList do
-        table.insert(TargetCharacters, character)
-        
-        -- Apply ESP if a HumanoidRootPart exists
-        if character and character:FindFirstChild("HumanoidRootPart") then
-            local tracker = ESP_Utility.NewTracker(character.HumanoidRootPart, character.Name, COLOR_RED)
-            if tracker and tracker.Name then
-                tracker:AddText("CurrentlyPlaying", nil, "???")
+    for _, character in ipairs(charactersList) do
+        if character and not IsCharacterWhitelisted(character) then
+            table.insert(TargetCharacters, character)
+
+            if character:FindFirstChild("HumanoidRootPart") then
+                local tracker = ESP_Utility.NewTracker(
+                    character.HumanoidRootPart,
+                    character.Name,
+                    COLOR_RED
+                )
+
+                if tracker and tracker.Name then
+                    tracker:AddText("CurrentlyPlaying", nil, "???")
+                end
+
+                EspTrackers[character] = tracker
             end
-            EspTrackers[character] = tracker
+
+            AddSelectedMarker(character)
         end
     end
 end
@@ -2014,6 +2163,10 @@ function CycleEvent()
     local validCharacters = {}
 
     for _, char in ipairs(allCharacters) do
+        if IsCharacterWhitelisted(char) then
+            continue
+        end
+
         -- Prevent the script from targeting yourself
       --  if char == localCharacter then continue end 
 
@@ -2425,7 +2578,7 @@ local function SetupPresetConfigUI()
 
     local Presets = {}
     local SelectedPresetSlot = "Slot 1"
-    local CurrentTheme = "Amethyst Dark"
+    local CurrentTheme = "AmethystDark"
 
     local function CanUsePersistentFiles()
         return type(writefile) == "function"
@@ -2544,6 +2697,8 @@ local function SetupPresetConfigUI()
             },
 
             AnimationTimings = CopyAnimationTimings(),
+
+            Whitelist = CopyWhitelist(),
 
             Keybinds = {
                 ESP = ToggleKeybinds.ESP,
@@ -2708,6 +2863,7 @@ local function SetupPresetConfigUI()
             end)
         end
 
+        ApplyWhitelist(preset.Whitelist)
         ApplyAnimationTimings(preset.AnimationTimings)
 
         if type(preset.Keybinds) == "table" then
@@ -2868,7 +3024,7 @@ local function SetupPresetConfigUI()
         Id = "config_theme",
         Title = "Theme",
         Options = Library.Themes,
-        Default = "Amethyst Dark",
+        Default = "AmethystDark",
 
         Callback = function(value)
             CurrentTheme = value
@@ -2903,6 +3059,70 @@ end
 SetupPresetConfigUI()
 
 local function SetupTargetFolderUI()
+    SafeAddButton(TargetingTab, {
+        Title = "Whitelist Selected Target(s)",
+
+        Callback = function()
+            if #TargetCharacters == 0 then
+                Notify("Whitelist", "No target is currently selected.", 3)
+                return
+            end
+
+            local names = {}
+
+            for _, character in ipairs(TargetCharacters) do
+                if SetCharacterWhitelisted(character, true) then
+                    names[#names + 1] = GetCharacterDisplayName(character)
+                end
+            end
+
+            UpdateTargetCharacters({})
+            CycleEvent()
+
+            Notify(
+                "Whitelist",
+                "Added: " .. table.concat(names, ", "),
+                4
+            )
+        end
+    })
+
+    SafeAddButton(TargetingTab, {
+        Title = "Remove Last Selected From Whitelist",
+
+        Callback = function()
+            local removed = {}
+
+            for _, character in ipairs(TargetSelectionState.LastSelected) do
+                if IsCharacterWhitelisted(character) then
+                    SetCharacterWhitelisted(character, false)
+                    removed[#removed + 1] =
+                        GetCharacterDisplayName(character)
+                end
+            end
+
+            CycleEvent()
+
+            Notify(
+                "Whitelist",
+                #removed > 0
+                    and ("Removed: " .. table.concat(removed, ", "))
+                    or "Last selected target(s) were not whitelisted.",
+                4
+            )
+        end
+    })
+
+    SafeAddButton(TargetingTab, {
+        Title = "Clear Whitelist",
+
+        Callback = function()
+            table.clear(TargetSelectionState.Whitelist)
+            CycleEvent()
+            Notify("Whitelist", "Whitelist cleared.", 3)
+        end
+    })
+
     do
         local folders = GetAllFoldersInWorkspace()
         local defaultFolder = nil
