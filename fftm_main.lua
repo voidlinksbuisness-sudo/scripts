@@ -1,4 +1,4 @@
--- FFTM_MAIN_BUILD = "2026-08-14-MANUAL-X-CYCLE-FIX-3"
+-- FFTM_MAIN_BUILD = "2026-08-14-MATCHA-DRAWING-SELECTED-4"
 --// WABI SABI UI
 loadstring(game:HttpGet("https://scripts.wabisabi.mom/wabi-sabi-ui-lib.lua"))()
 
@@ -1258,10 +1258,14 @@ local function SetCharacterWhitelisted(character, enabled)
 end
 
 local function ClearSelectedMarkers()
-    for character, markerGui in pairs(TargetSelectionState.Markers) do
-        if markerGui then
+    for character, markerText in pairs(TargetSelectionState.Markers) do
+        if markerText then
             pcall(function()
-                markerGui:Destroy()
+                markerText.Visible = false
+            end)
+
+            pcall(function()
+                markerText:Remove()
             end)
         end
 
@@ -1274,34 +1278,43 @@ local function AddSelectedMarker(character)
         return
     end
 
-    local adornee =
-        character:FindFirstChild("Head")
-        or character:FindFirstChild("HumanoidRootPart")
+    local markerText = Drawing.new("Text")
+    markerText.Text = "SELECTED"
+    markerText.Size = 18
+    markerText.Center = true
+    markerText.Outline = true
+    markerText.Transparency = 1
+    markerText.Color = Color3.fromRGB(255, 50, 50)
+    markerText.Visible = false
+    markerText.ZIndex = 30
 
-    if not adornee then
-        return
+    TargetSelectionState.Markers[character] = markerText
+end
+
+local function UpdateSelectedMarkers()
+    for character, markerText in pairs(TargetSelectionState.Markers) do
+        local visible = false
+
+        if character and markerText then
+            local anchor =
+                character:FindFirstChild("Head")
+                or character:FindFirstChild("HumanoidRootPart")
+
+            if anchor then
+                local screenPos, onScreen =
+                    WorldToScreen(anchor.Position + Vector3.new(0, 1.5, 0))
+
+                if onScreen and screenPos then
+                    markerText.Position =
+                        Vector2.new(screenPos.X, screenPos.Y)
+
+                    visible = true
+                end
+            end
+
+            markerText.Visible = visible
+        end
     end
-
-    local billboard = Instance.new("BillboardGui")
-    billboard.Name = "FFTM_SelectedTarget"
-    billboard.Adornee = adornee
-    billboard.AlwaysOnTop = true
-    billboard.Size = UDim2.new(0, 150, 0, 34)
-    billboard.StudsOffset = Vector3.new(0, 3.4, 0)
-    billboard.Parent = adornee
-
-    local label = Instance.new("TextLabel")
-    label.Name = "Label"
-    label.BackgroundTransparency = 1
-    label.Size = UDim2.fromScale(1, 1)
-    label.Font = Enum.Font.GothamBold
-    label.Text = "SELECTED"
-    label.TextColor3 = Color3.fromRGB(255, 80, 80)
-    label.TextStrokeTransparency = 0.25
-    label.TextScaled = true
-    label.Parent = billboard
-
-    TargetSelectionState.Markers[character] = billboard
 end
 
 local function CopyWhitelist()
@@ -3325,6 +3338,7 @@ RunService.RenderStepped:Connect(function()
     local players = Players:GetPlayers()
     updateEspTracers(players)
     updateHealth(players)
+    UpdateSelectedMarkers()
 end)
 
 print("Free Fortnite Cheats TM | Wabi tabs safe-fallback build loaded")
