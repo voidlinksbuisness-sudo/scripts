@@ -1,4 +1,4 @@
--- FFTM_MAIN_BUILD = "2026-08-14-X-INPUT-PRIORITY-FIX-5"
+-- FFTM_MAIN_BUILD = "2026-08-14-X-POLLING-FIX-6"
 --// WABI SABI UI
 loadstring(game:HttpGet("https://scripts.wabisabi.mom/wabi-sabi-ui-lib.lua"))()
 
@@ -3262,8 +3262,12 @@ UIS.InputBegan:Connect(function(input, gameProcessed)
     -- Manual targeting gets first priority.
     -- RhythmServiceUI used to swallow X before it could reach CycleEvent().
     if input.KeyCode == CycleKeybind then
-        print("[Target] X pressed -> manual cycle")
-        CycleEvent(true)
+        if not ManualCycleKeyWasDown then
+            print("[Target] X InputBegan fallback -> manual cycle")
+            CycleEvent(true)
+        end
+
+        ManualCycleKeyWasDown = true
         return
     end
 
@@ -3303,9 +3307,50 @@ end)
 
 local STATE_MACHINE_TICK = 0.05
 local UTILITY_TICK = 0.5 -- Run 2 times per second
-local LastCycleCheck = 0 
+local LastCycleCheck = 0
+
+local ManualCycleKeyWasDown = false
+
+local function IsManualCycleKeyDown()
+    local down = false
+
+    -- Preferred: normal Roblox physical-key polling.
+    local ok = pcall(function()
+        down = UIS:IsKeyDown(CycleKeybind)
+    end)
+
+    if ok and down then
+        return true
+    end
+
+    -- Matcha fallback if UserInputService polling is unavailable.
+    if type(iskeypressed) == "function" then
+        local fallbackOk, fallbackDown = pcall(function()
+            return iskeypressed(string.byte("X"))
+        end)
+
+        if fallbackOk and fallbackDown then
+            return true
+        end
+    end
+
+    return false
+end
+
+local function PollManualCycleKey()
+    local down = IsManualCycleKeyDown()
+
+    if down and not ManualCycleKeyWasDown then
+        print("[Target] X polling detected -> manual cycle")
+        CycleEvent(true)
+    end
+
+    ManualCycleKeyWasDown = down
+end
 
 local function MainLoop()
+    PollManualCycleKey()
+
     local now = os.clock()
     local localChar = LocalPlayer.Character
     if not localChar then return end
