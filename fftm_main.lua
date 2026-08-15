@@ -1,4 +1,4 @@
--- FFTM_MAIN_BUILD = "2026-08-14-TARGET-MARKER-WHITELIST-MATCHA-2"
+-- FFTM_MAIN_BUILD = "2026-08-14-MANUAL-X-CYCLE-FIX-3"
 --// WABI SABI UI
 loadstring(game:HttpGet("https://scripts.wabisabi.mom/wabi-sabi-ui-lib.lua"))()
 
@@ -1333,7 +1333,7 @@ local EspTrackers = {}
 
 local PendingReactionTimestamp = nil 
 local EspTracker = nil
-local CurrentIndex = 1
+local CurrentIndex = 0
 local COLOR_WHITE = Color3.fromRGB(255, 255, 255)
 local COLOR_RED = Color3.fromRGB(255, 50, 50)
 local COLOR_GREEN = Color3.fromRGB(50, 255, 50)
@@ -2174,17 +2174,23 @@ local function UpdateTargetCharacters(charactersList)
     end
 end
 
-function CycleEvent()
+function CycleEvent(manualCycle)
     local allCharacters = GetAllCharactersInFolder()
-    if not SelectedFolder or not allCharacters then 
+
+    if not SelectedFolder or not allCharacters then
         UpdateTargetCharacters({})
-        return 
+        return
     end
 
     local localPlayer = game.Players.LocalPlayer
     local localCharacter = localPlayer.Character
-    local localRoot = localCharacter and localCharacter:FindFirstChild("HumanoidRootPart")
-    if not localRoot then return end
+    local localRoot =
+        localCharacter
+        and localCharacter:FindFirstChild("HumanoidRootPart")
+
+    if not localRoot then
+        return
+    end
 
     local validCharacters = {}
 
@@ -2193,24 +2199,40 @@ function CycleEvent()
             continue
         end
 
-        -- Prevent the script from targeting yourself
-      --  if char == localCharacter then continue end 
+        -- Keep the existing Include Local Character behavior.
+        if char == localCharacter and not IncludeLocalCharacter then
+            continue
+        end
 
         local targetRoot = char:FindFirstChild("HumanoidRootPart")
+
         if targetRoot then
-            local distance = (localRoot.Position - targetRoot.Position).Magnitude
+            local distance =
+                (localRoot.Position - targetRoot.Position).Magnitude
+
             if distance <= MaxCycleRange then
-                table.insert(validCharacters, { Character = char, Distance = distance })
+                table.insert(validCharacters, {
+                    Character = char,
+                    Distance = distance,
+                })
             end
         end
     end
-    
+
     if #validCharacters == 0 then
-        CurrentIndex = 1
-        UpdateTargetCharacters({}) 
-        if not AutoTargetNearest.Get() then  
-            Notify("Cycle", "No targets found in range [".. MaxCycleRange.." studs]")            
+        CurrentIndex = 0
+        UpdateTargetCharacters({})
+
+        if manualCycle then
+            Notify(
+                "Cycle",
+                "No targets found in range ["
+                    .. tostring(MaxCycleRange)
+                    .. " studs]",
+                3
+            )
         end
+
         return
     end
 
@@ -2218,22 +2240,47 @@ function CycleEvent()
         return a.Distance < b.Distance
     end)
 
+    -- Manual X selection is intentionally independent of Auto Target
+    -- and Multiple Targets. Every X press advances exactly one target.
+    if manualCycle then
+        CurrentIndex = (CurrentIndex % #validCharacters) + 1
+
+        local selectedCharacter =
+            validCharacters[CurrentIndex].Character
+
+        UpdateTargetCharacters({ selectedCharacter })
+
+        Notify(
+            "Target",
+            "Selected "
+                .. GetCharacterDisplayName(selectedCharacter)
+                .. " ["
+                .. tostring(CurrentIndex)
+                .. "/"
+                .. tostring(#validCharacters)
+                .. "]",
+            2
+        )
+
+        return
+    end
+
+    -- Automatic targeting keeps the existing behavior.
     if MultiTarget.Get() then
         local Max = 3
         local finalTargets = {}
-        
+
         for i = 1, math.min(Max, #validCharacters) do
-            table.insert(finalTargets, validCharacters[i].Character)
+            table.insert(
+                finalTargets,
+                validCharacters[i].Character
+            )
         end
-        
+
         UpdateTargetCharacters(finalTargets)
     else
-        CurrentIndex = (CurrentIndex % #validCharacters) + 1
-        
-        local targetIndex = AutoTargetNearest.Get() and 1 or CurrentIndex
-        local selectedCharacter = validCharacters[targetIndex].Character
-        
-        UpdateTargetCharacters({selectedCharacter})
+        local selectedCharacter = validCharacters[1].Character
+        UpdateTargetCharacters({ selectedCharacter })
     end
 end
 
@@ -3209,7 +3256,7 @@ UIS.InputBegan:Connect(function(input, gameProcessed)
     end
 
     if input.KeyCode == CycleKeybind then
-        CycleEvent()
+        CycleEvent(true)
     elseif input.KeyCode == Enum.KeyCode.F then 
         local localChar = LocalPlayer.Character
         LocalTracker:Update(localChar) 
@@ -3263,7 +3310,7 @@ local function MainLoop()
     if (now - LastCycleCheck >= UTILITY_TICK) then
         LastCycleCheck = now
         if AutoTargetNearest.Get() then
-            CycleEvent()
+            CycleEvent(false)
         end
 
         ProcessEspAndLogging()
