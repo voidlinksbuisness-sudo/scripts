@@ -740,8 +740,7 @@ local BlockHoldTime = 0.27
 -- ==========================================
 -- PARRY LEARNING / DATABASE
 -- ==========================================
--- Keep the whole subsystem inside ONE top-level local so Matcha does not
--- burn dozens of local registers in the main chunk.
+-- Kept inside one local module to avoid Matcha's 200-local register ceiling.
 local ParryLearningAPI = (function()
     local Config = {
         Enabled = true,
@@ -767,18 +766,11 @@ local ParryLearningAPI = (function()
     end
 
     local function GetRequestFunction()
-        if type(request) == "function" then
-            return request
-        end
-
-        if type(http_request) == "function" then
-            return http_request
-        end
-
+        if type(request) == "function" then return request end
+        if type(http_request) == "function" then return http_request end
         if type(syn) == "table" and type(syn.request) == "function" then
             return syn.request
         end
-
         return nil
     end
 
@@ -791,20 +783,16 @@ local ParryLearningAPI = (function()
 
     local function CacheKey(style, animationId, bucketLabel)
         return tostring(style or "Unknown")
-            .. "|"
-            .. tostring(animationId or "Unknown")
-            .. "|"
-            .. tostring(bucketLabel or "Unknown")
+            .. "|" .. tostring(animationId or "Unknown")
+            .. "|" .. tostring(bucketLabel or "Unknown")
     end
 
     local function Http(method, path, body)
-        if not Config.Enabled then
-            return nil
-        end
+        if not Config.Enabled then return nil end
 
         local requestFn = GetRequestFunction()
         if not requestFn then
-            warn("[Learning HTTP] No supported request() function is available.")
+            warn("[Learning HTTP] No supported request function.")
             return nil
         end
 
@@ -812,7 +800,6 @@ local ParryLearningAPI = (function()
             ["Accept"] = "application/json",
             ["Authorization"] = "Bearer " .. tostring(Config.ApiToken or ""),
         }
-
         if body ~= nil then
             headers["Content-Type"] = "application/json"
         end
@@ -836,9 +823,7 @@ local ParryLearningAPI = (function()
         if status < 200 or status >= 300 then
             warn(string.format(
                 "[Learning HTTP] %s %s returned HTTP %d | %s",
-                tostring(method),
-                tostring(path),
-                status,
+                tostring(method), tostring(path), status,
                 tostring(response.Body or response.body or "")
             ))
             return nil
@@ -857,7 +842,7 @@ local ParryLearningAPI = (function()
             return decoded
         end
 
-        warn("[Learning HTTP] Could not decode response JSON.")
+        warn("[Learning HTTP] Could not decode JSON response.")
         return nil
     end
 
@@ -875,9 +860,7 @@ local ParryLearningAPI = (function()
         local now = os.clock()
 
         if cached and (now - cached.FetchedAt) < Config.CacheSeconds then
-            if cached.Found then
-                return cached.Timing, cached
-            end
+            if cached.Found then return cached.Timing, cached end
             return nil, cached
         end
 
@@ -894,8 +877,7 @@ local ParryLearningAPI = (function()
                     local result = Http("GET", path, nil)
                     local fetchedAt = os.clock()
 
-                    if result
-                        and result.found == true
+                    if result and result.found == true
                         and tonumber(result.timing_seconds)
                         and (tonumber(result.sample_count) or 0) >= Config.MinimumSamples then
 
@@ -909,8 +891,7 @@ local ParryLearningAPI = (function()
 
                         print(string.format(
                             "[Learning] Cached %s | %s | %s | %.3fs | samples=%d",
-                            tostring(style),
-                            tostring(animationId),
+                            tostring(style), tostring(animationId),
                             tostring(result.ping_range or bucketLabel),
                             tonumber(result.timing_seconds),
                             tonumber(result.sample_count) or 0
@@ -928,7 +909,7 @@ local ParryLearningAPI = (function()
                 LookupInFlight[key] = nil
 
                 if not ok then
-                    warn("[Learning] Background lookup failed; using fallback timing: " .. tostring(err))
+                    warn("[Learning] Background lookup failed; fallback remains active: " .. tostring(err))
                     Cache[key] = {
                         Found = false,
                         Count = 0,
@@ -949,9 +930,7 @@ local ParryLearningAPI = (function()
     end
 
     function API.SubmitSuccessfulParry(attackConfig, animationId, timingSeconds, pingMs)
-        if not Config.Enabled
-            or not attackConfig
-            or not animationId
+        if not Config.Enabled or not attackConfig or not animationId
             or type(timingSeconds) ~= "number" then
             return
         end
@@ -985,22 +964,13 @@ local ParryLearningAPI = (function()
             local count = tonumber(result.sample_count) or 0
             local learned = tonumber(result.timing_seconds)
 
-            if learned and count >= Config.MinimumSamples then
-                Cache[key] = {
-                    Found = true,
-                    Timing = learned,
-                    Count = count,
-                    PingRange = result.ping_range or bucketLabel,
-                    FetchedAt = os.clock(),
-                }
-            else
-                Cache[key] = {
-                    Found = false,
-                    Count = count,
-                    PingRange = result.ping_range or bucketLabel,
-                    FetchedAt = os.clock(),
-                }
-            end
+            Cache[key] = {
+                Found = learned ~= nil and count >= Config.MinimumSamples,
+                Timing = learned,
+                Count = count,
+                PingRange = result.ping_range or bucketLabel,
+                FetchedAt = os.clock(),
+            }
 
             print(string.format(
                 "[Learning] SUCCESS logged | %s | %s | ping %s ms | %.3fs | samples=%d%s",
@@ -1639,8 +1609,9 @@ local TimeBetweenPressingFandParrying = nil
 local InputRegisteredTime = nil
 local ParryRegisteredTime = nil
 local InputLatency = 0 -- (Parry - Input)
-local RecentParryAttempt = nil
-local RECENT_PARRY_ATTEMPT_TTL = 1.5
+
+_G.__FFTM_RecentParryAttempt = nil
+_G.__FFTM_RecentParryAttemptTTL = 1.5
 
 
 local ParryState = {
@@ -1773,13 +1744,11 @@ function BlockStart(StartTime, HoldFor)
         TransitionToState(ParryState.IDLE)
     end
 
-    local HoldFor = HoldFor or BlockHoldTime
-    ReleaseDeadline = StartTime + HoldFor
+    local holdDuration = HoldFor or BlockHoldTime
+    ReleaseDeadline = StartTime + holdDuration
     KeyHeld = true
 
     if AutoParryToggle.Get() == true then
-        -- Synthetic Matcha keypresses do not reliably trigger UIS.InputBegan.
-        -- Register the real auto-parry press directly for the learning state machine.
         local pressNow = os.clock()
 
         if CurrentParryState == ParryState.IDLE then
@@ -1790,7 +1759,7 @@ function BlockStart(StartTime, HoldFor)
         end
 
         if LastPendingRegData then
-            RecentParryAttempt = {
+            _G.__FFTM_RecentParryAttempt = {
                 AnimationId = LastPendingRegData.AnimationId,
                 StartTime = LastPendingRegData.StartTime,
                 BlockStart = LastPendingRegData.BlockStart,
@@ -1942,30 +1911,26 @@ end
 
 
 local function OnSuccessfulParry()
-    -- The local ParriedAnimation event is the confirmed-success signal.
-    -- Use the live registration if available, otherwise the most recent
-    -- auto-parry attempt so cleanup/state races do not lose valid samples.
     local regData = LastPendingRegData
 
-    if not regData and RecentParryAttempt then
-        local age = os.clock() - (RecentParryAttempt.CreatedAt or 0)
-        if age <= RECENT_PARRY_ATTEMPT_TTL then
-            regData = RecentParryAttempt
+    if not regData and _G.__FFTM_RecentParryAttempt then
+        local age = os.clock() - (_G.__FFTM_RecentParryAttempt.CreatedAt or 0)
+        if age <= (_G.__FFTM_RecentParryAttemptTTL or 1.5) then
+            regData = _G.__FFTM_RecentParryAttempt
         else
-            RecentParryAttempt = nil
+            _G.__FFTM_RecentParryAttempt = nil
         end
     end
 
     if not regData then
-        warn("[Learning] Confirmed parry detected but no recent attack registration exists.")
+        warn("[Learning] Confirmed parry but no recent attack registration.")
         return
     end
 
     local AnimId = regData.AnimationId
     local AttackConfig = AnimId and GameConfig[AnimId]
-
     if not AttackConfig then
-        warn("[Learning] Confirmed parry has no attack config for " .. tostring(AnimId))
+        warn("[Learning] Confirmed parry has no config for " .. tostring(AnimId))
         return
     end
 
@@ -1973,7 +1938,7 @@ local function OnSuccessfulParry()
     local startTime = tonumber(regData.StartTime)
 
     if not pressTime or not startTime then
-        warn("[Learning] Confirmed parry is missing timing timestamps.")
+        warn("[Learning] Confirmed parry missing timestamps.")
         return
     end
 
@@ -1981,11 +1946,7 @@ local function OnSuccessfulParry()
     local EstimatedParryWindow = os.clock() - startTime
 
     if ParryPressTime > 1 or ParryPressTime < 0 then
-        warn(string.format(
-            "[Learning] Ignoring impossible timing %.3fs for %s",
-            ParryPressTime,
-            tostring(AnimId)
-        ))
+        warn("[Learning] Ignoring impossible timing: " .. tostring(ParryPressTime))
         return
     end
 
@@ -2023,7 +1984,7 @@ local function OnSuccessfulParry()
         successPing
     )
 
-    RecentParryAttempt = nil
+    _G.__FFTM_RecentParryAttempt = nil
     ResetParryState()
     TransitionToState(ParryState.SUCCESS)
     TransitionToState(ParryState.IDLE)
@@ -3725,13 +3686,13 @@ UIS.InputBegan:Connect(function(input, gameProcessed)
 end)
 
 
-local STATE_MACHINE_TICK = 0.05
-local UTILITY_TICK = 0.5 -- Run 2 times per second
-local LastCycleCheck = 0
+STATE_MACHINE_TICK = 0.05
+UTILITY_TICK = 0.5 -- Run 2 times per second
+LastCycleCheck = 0
 
-local ManualCycleKeyWasDown = false
+ManualCycleKeyWasDown = false
 
-local function IsManualCycleKeyDown()
+function IsManualCycleKeyDown()
     local down = false
 
     -- Preferred: normal Roblox physical-key polling.
@@ -3774,7 +3735,7 @@ local function IsManualCycleKeyDown()
     return false
 end
 
-local function PollManualCycleKey()
+function PollManualCycleKey()
     local down = IsManualCycleKeyDown()
 
     if down and not ManualCycleKeyWasDown then
@@ -3785,7 +3746,7 @@ local function PollManualCycleKey()
     ManualCycleKeyWasDown = down
 end
 
-local function MainLoop()
+function MainLoop()
     PollManualCycleKey()
 
     local now = os.clock()
