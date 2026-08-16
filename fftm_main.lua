@@ -1,4 +1,4 @@
--- FFTM_MAIN_BUILD = "2026-08-14-X-CONTEXTACTION-FIX-7"
+-- FFTM_MAIN_BUILD = "2026-08-14-X-CONTEXTACTION-FIX-8"
 --// WABI SABI UI
 loadstring(game:HttpGet("https://scripts.wabisabi.mom/wabi-sabi-ui-lib.lua"))()
 
@@ -850,6 +850,8 @@ local function LearningHttp(method, path, body)
     return nil
 end
 
+local LearningLookupInFlight = {}
+
 local function GetLearnedTiming(attackConfig, animationId, pingMs)
     if not ParryLearning.Enabled or not attackConfig or not animationId then
         return nil, nil
@@ -861,6 +863,8 @@ local function GetLearnedTiming(attackConfig, animationId, pingMs)
     local cached = LearnedTimingCache[cacheKey]
     local now = os.clock()
 
+    -- IMPORTANT: never perform an HTTP request on the auto-parry hot path.
+    -- If we already have a fresh cache entry, use it immediately.
     if cached and (now - cached.FetchedAt) < ParryLearning.CacheSeconds then
         if cached.Found then
             return cached.Timing, cached
@@ -868,36 +872,74 @@ local function GetLearnedTiming(attackConfig, animationId, pingMs)
         return nil, cached
     end
 
-    local path =
-        "/v1/timing?style=" .. UrlEncode(tostring(style))
-        .. "&animation_id=" .. UrlEncode(tostring(animationId))
-        .. "&ping_ms=" .. UrlEncode(tostring(math.floor((tonumber(pingMs) or 0) + 0.5)))
+    -- No fresh cache entry: launch ONE background lookup and immediately
+    -- fall back to the normal configured timing for this attack.
+    if not LearningLookupInFlight[cacheKey] then
+        LearningLookupInFlight[cacheKey] = true
 
-    local result = LearningHttp("GET", path, nil)
+        task.spawn(function()
+            local ok, err = pcall(function()
+                local path =
+                    "/v1/timing?style=" .. UrlEncode(tostring(style))
+                    .. "&animation_id=" .. UrlEncode(tostring(animationId))
+                    .. "&ping_ms=" .. UrlEncode(tostring(math.floor((tonumber(pingMs) or 0) + 0.5)))
 
-    if result and result.found == true
-        and tonumber(result.timing_seconds)
-        and (tonumber(result.sample_count) or 0) >= ParryLearning.MinimumSamples then
+                local result = LearningHttp("GET", path, nil)
+                local fetchedAt = os.clock()
 
-        local entry = {
-            Found = true,
-            Timing = tonumber(result.timing_seconds),
-            Count = tonumber(result.sample_count) or 0,
-            PingRange = result.ping_range or bucketLabel,
-            FetchedAt = now,
-        }
-        LearnedTimingCache[cacheKey] = entry
-        return entry.Timing, entry
+                if result and result.found == true
+                    and tonumber(result.timing_seconds)
+                    and (tonumber(result.sample_count) or 0) >= ParryLearning.MinimumSamples then
+
+                    LearnedTimingCache[cacheKey] = {
+                        Found = true,
+                        Timing = tonumber(result.timing_seconds),
+                        Count = tonumber(result.sample_count) or 0,
+                        PingRange = result.ping_range or bucketLabel,
+                        FetchedAt = fetchedAt,
+                    }
+
+                    print(string.format(
+                        "[Learning] Cached %s | %s | %s | %.3fs | samples=%d",
+                        tostring(style),
+                        tostring(animationId),
+                        tostring(result.ping_range or bucketLabel),
+                        tonumber(result.timing_seconds),
+                        tonumber(result.sample_count) or 0
+                    ))
+                else
+                    LearnedTimingCache[cacheKey] = {
+                        Found = false,
+                        Count = result and tonumber(result.sample_count) or 0,
+                        PingRange = (result and result.ping_range) or bucketLabel,
+                        FetchedAt = fetchedAt,
+                    }
+                end
+            end)
+
+            LearningLookupInFlight[cacheKey] = nil
+
+            if not ok then
+                -- Learning must NEVER break auto parry.
+                warn("[Learning] Background lookup failed; using fallback timing: " .. tostring(err))
+
+                LearnedTimingCache[cacheKey] = {
+                    Found = false,
+                    Count = 0,
+                    PingRange = bucketLabel,
+                    FetchedAt = os.clock(),
+                }
+            end
+        end)
     end
 
-    local miss = {
+    return nil, {
         Found = false,
-        Count = result and tonumber(result.sample_count) or 0,
-        PingRange = (result and result.ping_range) or bucketLabel,
+        Count = cached and cached.Count or 0,
+        PingRange = bucketLabel,
         FetchedAt = now,
+        Pending = true,
     }
-    LearnedTimingCache[cacheKey] = miss
-    return nil, miss
 end
 
 local function SubmitSuccessfulParry(attackConfig, animationId, timingSeconds, pingMs)
@@ -2095,7 +2137,24 @@ end
 
 local function CalculateParryTiming(attackConfig, StartTime, Target, animationId)
     local pingMs = tonumber(GetPingValue()) or 0
-    local learnedTiming, learnedInfo = GetLearnedTiming(attackConfig, animationId, pingMs)
+
+    -- Learning is optional. Never allow it to abort or delay parry timing.
+    local learnedTiming = nil
+    local learnedInfo = nil
+
+    local learningOk, learnedA, learnedB = pcall(
+        GetLearnedTiming,
+        attackConfig,
+        animationId,
+        pingMs
+    )
+
+    if learningOk then
+        learnedTiming = learnedA
+        learnedInfo = learnedB
+    else
+        warn("[Learning] Timing lookup isolated from auto parry: " .. tostring(learnedA))
+    end
 
     local optimalReactionTime
     local timingSource
