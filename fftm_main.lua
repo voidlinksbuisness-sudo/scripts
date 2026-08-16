@@ -737,6 +737,226 @@ local DefaultReactionTime = 0.1
 local ParryOffset = 0
 local BlockHoldTime = 0.27
 
+-- ==========================================
+-- PARRY LEARNING / DATABASE
+-- ==========================================
+-- Point this at the Python server included with this build.
+-- Example: "http://192.168.1.50:8787"
+local ParryLearning = {
+    Enabled = true,
+    ApiBase = "https://fftm-parry-api.voidlinksbuisness.workers.dev",
+    ApiToken = "fftm_8fJ2kQ9xLm4Vt7Pz1Nc6Ry3Hs0Wd5Ba",
+    PingBucketSize = 20,
+    MinimumSamples = 3,
+    CacheSeconds = 15,
+    RequestTimeout = 4,
+}
+
+local HttpService = game:GetService("HttpService")
+local LearnedTimingCache = {}
+
+local function GetLearningRequestFunction()
+    if type(request) == "function" then
+        return request
+    end
+
+    if type(http_request) == "function" then
+        return http_request
+    end
+
+    if type(syn) == "table" and type(syn.request) == "function" then
+        return syn.request
+    end
+
+    return nil
+end
+
+local function GetPingBucket(pingMs)
+    local size = tonumber(ParryLearning.PingBucketSize) or 20
+    local ping = math.max(0, tonumber(pingMs) or 0)
+    local lower = math.floor(ping / size) * size
+    return lower, lower + size, tostring(lower) .. "-" .. tostring(lower + size)
+end
+
+local function GetLearningCacheKey(style, animationId, bucketLabel)
+    return tostring(style or "Unknown")
+        .. "|"
+        .. tostring(animationId or "Unknown")
+        .. "|"
+        .. tostring(bucketLabel or "Unknown")
+end
+
+local function LearningHttp(method, path, body)
+    if not ParryLearning.Enabled then
+        return nil
+    end
+
+    local requestFn = GetLearningRequestFunction()
+    if not requestFn then
+        return nil
+    end
+
+    local headers = {
+        ["Accept"] = "application/json",
+        ["Authorization"] = "Bearer " .. tostring(ParryLearning.ApiToken or ""),
+    }
+
+    if body ~= nil then
+        headers["Content-Type"] = "application/json"
+    end
+
+    local ok, response = pcall(function()
+        return requestFn({
+            Url = tostring(ParryLearning.ApiBase) .. path,
+            Method = method,
+            Headers = headers,
+            Body = body and HttpService:JSONEncode(body) or nil,
+            Timeout = ParryLearning.RequestTimeout,
+        })
+    end)
+
+    if not ok or type(response) ~= "table" then
+        return nil
+    end
+
+    local status = tonumber(response.StatusCode or response.Status or 0) or 0
+    if status < 200 or status >= 300 then
+        return nil
+    end
+
+    local responseBody = response.Body or response.body
+    if type(responseBody) ~= "string" or responseBody == "" then
+        return {}
+    end
+
+    local decodeOk, decoded = pcall(function()
+        return HttpService:JSONDecode(responseBody)
+    end)
+
+    if decodeOk and type(decoded) == "table" then
+        return decoded
+    end
+
+    return nil
+end
+
+local function GetLearnedTiming(attackConfig, animationId, pingMs)
+    if not ParryLearning.Enabled or not attackConfig or not animationId then
+        return nil, nil
+    end
+
+    local style = attackConfig.Style or "Unknown"
+    local _, _, bucketLabel = GetPingBucket(pingMs)
+    local cacheKey = GetLearningCacheKey(style, animationId, bucketLabel)
+    local cached = LearnedTimingCache[cacheKey]
+    local now = os.clock()
+
+    if cached and (now - cached.FetchedAt) < ParryLearning.CacheSeconds then
+        if cached.Found then
+            return cached.Timing, cached
+        end
+        return nil, cached
+    end
+
+    local path =
+        "/v1/timing?style=" .. HttpService:UrlEncode(tostring(style))
+        .. "&animation_id=" .. HttpService:UrlEncode(tostring(animationId))
+        .. "&ping_ms=" .. HttpService:UrlEncode(tostring(math.floor((tonumber(pingMs) or 0) + 0.5)))
+
+    local result = LearningHttp("GET", path, nil)
+
+    if result and result.found == true
+        and tonumber(result.timing_seconds)
+        and (tonumber(result.sample_count) or 0) >= ParryLearning.MinimumSamples then
+
+        local entry = {
+            Found = true,
+            Timing = tonumber(result.timing_seconds),
+            Count = tonumber(result.sample_count) or 0,
+            PingRange = result.ping_range or bucketLabel,
+            FetchedAt = now,
+        }
+        LearnedTimingCache[cacheKey] = entry
+        return entry.Timing, entry
+    end
+
+    local miss = {
+        Found = false,
+        Count = result and tonumber(result.sample_count) or 0,
+        PingRange = (result and result.ping_range) or bucketLabel,
+        FetchedAt = now,
+    }
+    LearnedTimingCache[cacheKey] = miss
+    return nil, miss
+end
+
+local function SubmitSuccessfulParry(attackConfig, animationId, timingSeconds, pingMs)
+    if not ParryLearning.Enabled
+        or not attackConfig
+        or not animationId
+        or type(timingSeconds) ~= "number" then
+        return
+    end
+
+    local lower, upper, bucketLabel = GetPingBucket(pingMs)
+    local style = attackConfig.Style or "Unknown"
+
+    task.spawn(function()
+        local result = LearningHttp("POST", "/v1/success", {
+            game = GameName,
+            style = style,
+            animation_id = tostring(animationId),
+            display_name = tostring(attackConfig.DisplayName or ""),
+            ping_ms = tonumber(pingMs) or 0,
+            ping_bucket_min = lower,
+            ping_bucket_max = upper,
+            timing_seconds = timingSeconds,
+        })
+
+        if not result then
+            warn(string.format(
+                "[Learning] Could not upload success for %s | %s | %s",
+                tostring(style),
+                tostring(attackConfig.DisplayName or animationId),
+                bucketLabel
+            ))
+            return
+        end
+
+        local cacheKey = GetLearningCacheKey(style, animationId, bucketLabel)
+        local count = tonumber(result.sample_count) or 0
+        local learned = tonumber(result.timing_seconds)
+
+        if learned and count >= ParryLearning.MinimumSamples then
+            LearnedTimingCache[cacheKey] = {
+                Found = true,
+                Timing = learned,
+                Count = count,
+                PingRange = result.ping_range or bucketLabel,
+                FetchedAt = os.clock(),
+            }
+        else
+            -- Force another lookup soon as the bucket approaches the minimum.
+            LearnedTimingCache[cacheKey] = {
+                Found = false,
+                Count = count,
+                PingRange = result.ping_range or bucketLabel,
+                FetchedAt = os.clock(),
+            }
+        end
+
+        print(string.format(
+            "[Learning] SUCCESS logged | %s | %s | ping %s ms | %.3fs | samples=%d%s",
+            tostring(style),
+            tostring(attackConfig.DisplayName or animationId),
+            tostring(result.ping_range or bucketLabel),
+            timingSeconds,
+            count,
+            learned and (" | learned=" .. string.format("%.3fs", learned)) or ""
+        ))
+    end)
+end
+
 
 -- ==========================================
 local FlattenedConfig = {}
@@ -1669,6 +1889,13 @@ local function OnSuccessfulParry()
         
         LastPendingRegData.LearnedParryTime = ParryPressTime
         LastPendingRegData.Success = true
+
+        -- The game's local parried animation is our success oracle. Record the
+        -- exact press time relative to this attack's animation start in the
+        -- CURRENT ping bucket.
+        local successPing = tonumber(GetPingValue()) or LastPendingRegData.PingAtPlan or 0
+        SubmitSuccessfulParry(AttackConfig, AnimId, ParryPressTime, successPing)
+
         --LastPendingRegData.Processed = true
 
         -- CLEANUP
@@ -1758,7 +1985,7 @@ end
 -- ==========================================
 
 
-local ParryLearningLog = {}  -- {[animId] = {TriggerTime, Style, DisplayName, Count}}
+-- Successful timing learning is handled by the database client above.
 
 local function onLocalAnimationAdded(anim)
     local animId = anim.AnimationId
@@ -1856,30 +2083,43 @@ local function UpdateCharacterESP(character, Distance)
     end
 end
 
-local function CalculateParryTiming(attackConfig, StartTime, Target)
-    
-    local optimalReactionTime = (attackConfig.ReactionTime or DefaultReactionTime)
-    local HeightMultiplier = 1 
-    if HeightToggle.Get() then  
-       HeightMultiplier = GetHeightMultiplierForCharacter(Target)
+local function CalculateParryTiming(attackConfig, StartTime, Target, animationId)
+    local pingMs = tonumber(GetPingValue()) or 0
+    local learnedTiming, learnedInfo = GetLearnedTiming(attackConfig, animationId, pingMs)
+
+    local optimalReactionTime
+    local timingSource
+
+    if learnedTiming then
+        -- This timing was learned inside the exact current ping bucket, so do NOT
+        -- compensate for ping a second time.
+        optimalReactionTime = learnedTiming
+        timingSource = "learned:" .. tostring(learnedInfo and learnedInfo.PingRange or "?")
+    else
+        -- No learned value for this exact bucket yet:
+        -- fall back to the configured/base timing and use the existing half-ping
+        -- compensation until successful samples populate this bucket.
+        optimalReactionTime = (attackConfig.ReactionTime or DefaultReactionTime)
+
+        if PingCompensateToggle.Get() then
+            optimalReactionTime -= (pingMs / 1000) * 0.5
+        end
+
+        timingSource = "fallback+ping"
     end
 
-    local CompValue = (GetPingValue()/1000) * 0.5
-
-    if PingCompensateToggle.Get() then  
-        optimalReactionTime -= CompValue
+    local HeightMultiplier = 1
+    if HeightToggle.Get() then
+        HeightMultiplier = GetHeightMultiplierForCharacter(Target)
     end
 
     local adjustedReactionTime = (optimalReactionTime * HeightMultiplier) + ParryOffset
-
-
     local parryWindowStart = adjustedReactionTime
     local parryWindowEnd = adjustedReactionTime + ParryWindow
-
     local ClockStart = StartTime + parryWindowStart
     local ClockEnd = StartTime + parryWindowEnd
-    
-    return ClockStart, ClockEnd
+
+    return ClockStart, ClockEnd, timingSource, pingMs
 end
 
 local ConstLatency = 0.018
@@ -1889,7 +2129,7 @@ local function UpdateAnimationRegistry(animKey, anim, now, currentTrackTime, att
 
     if not AnimationRegistry[animKey] then
         local adjustedNow = now - ConstLatency -- - currentTrackTime
-        local BlockStart, BlockExpire = CalculateParryTiming(attackConfig, adjustedNow, TargetCharacter)
+        local BlockStart, BlockExpire, timingSource, pingMs = CalculateParryTiming(attackConfig, adjustedNow, TargetCharacter, anim.AnimationId)
 
         AnimationRegistry[animKey] = {
             StartTime = adjustedNow,
@@ -1904,19 +2144,23 @@ local function UpdateAnimationRegistry(animKey, anim, now, currentTrackTime, att
             BlockExpire = BlockExpire,
             RandomNum = math.random(1, 100),
             LastExecuteTime = 0, -- debounce timestamp
+            TimingSource = timingSource,
+            PingAtPlan = pingMs,
         }
     end
     
     local regData = AnimationRegistry[animKey]
     
     if regData.CurrentTrackTime and (currentTrackTime < regData.CurrentTrackTime) then
-        local BlockStart, BlockExpire = CalculateParryTiming(attackConfig, now - currentTrackTime, TargetCharacter)
+        local BlockStart, BlockExpire, timingSource, pingMs = CalculateParryTiming(attackConfig, now - currentTrackTime, TargetCharacter, anim.AnimationId)
         
         regData.Processed = false
         regData.DidALoop = true
         warn("Loop detected")
         regData.BlockStart = BlockStart
         regData.BlockExpire = BlockExpire
+        regData.TimingSource = timingSource
+        regData.PingAtPlan = pingMs
         regData.StartTime = now - ConstLatency -- - currentTrackTime
     end
     
@@ -1971,9 +2215,11 @@ local function ExecuteParry(regData, attackConfig)
         if LastPendingRegData ~= regData then
             LastPendingRegData = regData
             BlockStart(LastPendingRegData.BlockStart)
-            print(string.format("Block triggered by [%s | %s] " , 
-                attackConfig.Style, 
-                attackConfig.DisplayName
+            print(string.format("Block triggered by [%s | %s] | %s | ping=%.0fms" ,
+                attackConfig.Style,
+                attackConfig.DisplayName,
+                tostring(regData.TimingSource or "unknown"),
+                tonumber(regData.PingAtPlan) or 0
                 ))
         elseif LastPendingRegData == regData then
             if regData.DidALoop then  
