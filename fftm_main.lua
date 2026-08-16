@@ -747,9 +747,11 @@ local ParryLearningAPI = (function()
         ApiBase = "https://fftm-parry-api.voidlinksbuisness.workers.dev",
         ApiToken = "fftm_8fJ2kQ9xLm4Vt7Pz1Nc6Ry3Hs0Wd5Ba",
         PingBucketSize = 20,
-        MinimumSamples = 3,
+        MinimumSamples = 7,
         CacheSeconds = 15,
         RequestTimeout = 4,
+        MinAcceptedTiming = 0.02,
+        MaxAcceptedTiming = 1.00,
     }
 
     local HttpService = game:GetService("HttpService")
@@ -936,6 +938,18 @@ local ParryLearningAPI = (function()
             return
         end
 
+        if timingSeconds < Config.MinAcceptedTiming
+            or timingSeconds > Config.MaxAcceptedTiming then
+
+            warn(string.format(
+                "[Learning] Rejected impossible timing locally | %s | %s | %.3fs",
+                tostring(attackConfig.Style or "Unknown"),
+                tostring(attackConfig.DisplayName or animationId),
+                timingSeconds
+            ))
+            return
+        end
+
         local lower, upper, bucketLabel = GetPingBucket(pingMs)
         local style = attackConfig.Style or "Unknown"
 
@@ -965,6 +979,30 @@ local ParryLearningAPI = (function()
             local count = tonumber(result.sample_count) or 0
             local learned = tonumber(result.timing_seconds)
 
+            if result.accepted == false then
+                warn(string.format(
+                    "[Learning] Server rejected outlier | %s | %s | %.3fs | baseline=%.3fs | clean=%d | rejected=%s",
+                    tostring(style),
+                    tostring(attackConfig.DisplayName or animationId),
+                    timingSeconds,
+                    tonumber(result.baseline_median or learned) or 0,
+                    count,
+                    tostring(result.rejected_count or "?")
+                ))
+
+                if learned and count >= Config.MinimumSamples then
+                    Cache[key] = {
+                        Found = true,
+                        Timing = learned,
+                        Count = count,
+                        PingRange = result.ping_range or bucketLabel,
+                        FetchedAt = os.clock(),
+                    }
+                end
+
+                return
+            end
+
             Cache[key] = {
                 Found = learned ~= nil and count >= Config.MinimumSamples,
                 Timing = learned,
@@ -974,13 +1012,14 @@ local ParryLearningAPI = (function()
             }
 
             print(string.format(
-                "[Learning] SUCCESS logged | %s | %s | ping %s ms | %.3fs | samples=%d%s",
+                "[Learning] SUCCESS logged | %s | %s | ping %s ms | %.3fs | clean=%d%s%s",
                 tostring(style),
                 tostring(attackConfig.DisplayName or animationId),
                 tostring(result.ping_range or bucketLabel),
                 timingSeconds,
                 count,
-                learned and (" | learned=" .. string.format("%.3fs", learned)) or ""
+                learned and (" | learned=" .. string.format("%.3fs", learned)) or "",
+                result.rejected_count and (" | filtered=" .. tostring(result.rejected_count)) or ""
             ))
         end)
     end
