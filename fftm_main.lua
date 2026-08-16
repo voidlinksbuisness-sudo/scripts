@@ -1656,6 +1656,7 @@ _G.__FFTM_RecentDodgeAttempt = nil
 _G.__FFTM_DodgeAttemptToken = 0
 _G.__FFTM_SelfTrainingAttack = nil
 _G.__FFTM_SelfTrainingTTL = 2.0
+_G.__FFTM_SelfTrainingDefaultStyle = "StrikerAnims"
 
 
 local ParryState = {
@@ -1947,34 +1948,103 @@ end
 local function OnInputF()
     local pressNow = os.clock()
 
-    -- SELF TRAINING:
-    -- If our own character is currently playing a configured attack animation,
-    -- attach this F press to that attack. A later confirmed ParriedAnimation
-    -- will turn it into a database sample.
-    local selfAttack = _G.__FFTM_SelfTrainingAttack
-    if selfAttack then
-        local age = pressNow - (selfAttack.CreatedAt or 0)
+    -- ======================================================
+    -- SELF TRAINING ACTIVE SCAN
+    -- ======================================================
+    -- Do NOT rely on AnimationAdded or GameConfig already knowing the ID.
+    -- When F is pressed, scan our currently playing animations and choose
+    -- the most likely attack animation.
+    local bestAnim = nil
+    local bestConfig = nil
+    local bestScore = -math.huge
 
-        if age <= (_G.__FFTM_SelfTrainingTTL or 2.0) then
-            selfAttack.PressTime = pressNow
-            selfAttack.PingAtPress = tonumber(GetPingValue()) or 0
+    local localChar = LocalPlayer.Character
+    if localChar then
+        local ok, activeAnims = pcall(function()
+            return LocalTracker:Update(localChar)
+        end)
 
-            print(string.format(
-                "[Self Training] F registered | %s | %s | %.3fs",
-                tostring(selfAttack.Style or "Unknown"),
-                tostring(selfAttack.DisplayName or selfAttack.AnimationId),
-                pressNow - (selfAttack.StartTime or pressNow)
-            ))
-        else
-            _G.__FFTM_SelfTrainingAttack = nil
+        if ok and type(activeAnims) == "table" then
+            for _, anim in activeAnims do
+                local animId = tostring(anim.AnimationId or "")
+                local timePos = tonumber(anim.TimePosition) or 999
+                local name = tostring(anim.Name or "")
+
+                local isDefensive =
+                    table.find(ParriedAnimation, animId)
+                    or table.find(ParryingAnimation, animId)
+                    or table.find(StunnedAnimation, animId)
+                    or table.find(ParryFailed, animId)
+
+                -- Only consider animations that have started recently.
+                if animId ~= ""
+                    and not isDefensive
+                    and timePos >= 0
+                    and timePos <= 1.25 then
+
+                    local config = GameConfig[animId]
+                    local score = 0
+
+                    -- Known configured attacks always win.
+                    if config then
+                        score += 1000
+                    end
+
+                    -- Names are only a hint; Matcha can expose strange names.
+                    local lowerName = string.lower(name)
+                    if lowerName:find("m1", 1, true)
+                        or lowerName:find("m2", 1, true)
+                        or lowerName:find("attack", 1, true)
+                        or lowerName:find("punch", 1, true)
+                        or lowerName:find("kick", 1, true)
+                        or lowerName:find("strike", 1, true) then
+                        score += 100
+                    end
+
+                    -- Prefer the animation that started most recently.
+                    score += math.max(0, 50 - (timePos * 40))
+
+                    if score > bestScore then
+                        bestScore = score
+                        bestAnim = anim
+                        bestConfig = config
+                    end
+                end
+            end
         end
+    end
+
+    if bestAnim then
+        local animId = tostring(bestAnim.AnimationId)
+        local timePos = tonumber(bestAnim.TimePosition) or 0
+        local config = bestConfig
+
+        _G.__FFTM_SelfTrainingAttack = {
+            AnimationId = animId,
+            StartTime = pressNow - timePos,
+            CreatedAt = pressNow,
+            Style = config and config.Style or (_G.__FFTM_SelfTrainingDefaultStyle or "StrikerAnims"),
+            DisplayName = config and config.DisplayName or tostring(bestAnim.Name or "SelfAttack"),
+            PressTime = pressNow,
+            PingAtPress = tonumber(GetPingValue()) or 0,
+            UnknownConfig = config == nil,
+        }
+
+        print(string.format(
+            "[Self Training] ATTACK CAPTURED ON F | %s | %s | %s | timing=%.3fs%s",
+            tostring(_G.__FFTM_SelfTrainingAttack.Style),
+            tostring(_G.__FFTM_SelfTrainingAttack.DisplayName),
+            animId,
+            timePos,
+            config and "" or " | NOT IN CONFIG"
+        ))
+    else
+        warn("[Self Training] F pressed but no recent attack animation was found.")
     end
 
     if CurrentParryState == ParryState.IDLE then
         InputRegisteredTime = pressNow
         TransitionToState(ParryState.INPUT_PENDING)
-    else
-    --    print("F was pressed while machine wasnt idle")
     end
 end
 
@@ -2119,6 +2189,8 @@ local function OnSuccessfulParry()
                 PressTime = selfAttack.PressTime,
                 PingAtPlan = selfAttack.PingAtPress,
                 SelfTraining = true,
+                SelfTrainingStyle = selfAttack.Style,
+                SelfTrainingDisplayName = selfAttack.DisplayName,
             }
 
             sourceLabel = "self-training"
@@ -2134,6 +2206,30 @@ local function OnSuccessfulParry()
 
     local AnimId = regData.AnimationId
     local AttackConfig = AnimId and GameConfig[AnimId]
+
+    -- For self-training, a brand-new Striker animation may not exist in
+    -- GameConfig yet. Build a temporary config so we can still save the
+    -- animation ID + successful timing to D1.
+    if not AttackConfig and regData.SelfTraining then
+        local selfAttack = _G.__FFTM_SelfTrainingAttack
+
+        AttackConfig = {
+            Style =
+                (selfAttack and selfAttack.Style)
+                or (_G.__FFTM_SelfTrainingDefaultStyle or "StrikerAnims"),
+
+            DisplayName =
+                (selfAttack and selfAttack.DisplayName)
+                or "UnconfiguredSelfAttack",
+        }
+
+        print(string.format(
+            "[Self Training] Unconfigured animation will still be uploaded | %s | %s | %s",
+            tostring(AttackConfig.Style),
+            tostring(AttackConfig.DisplayName),
+            tostring(AnimId)
+        ))
+    end
 
     if not AttackConfig then
         warn("[Learning] Confirmed parry has no config for " .. tostring(AnimId))
@@ -2280,56 +2376,42 @@ end
 -- Successful timing learning is handled by the database client above.
 
 local function onLocalAnimationAdded(anim)
-    local animId = anim.AnimationId
+    local animId = tostring(anim.AnimationId or "")
 
-    if table.find(ParriedAnimation, animId) then  
+    -- Always show what the local tracker can see. This is diagnostic only;
+    -- self-training itself no longer depends on this callback.
+    if animId ~= "" then
+        local cfg = GameConfig[animId]
+        local isSystem =
+            table.find(ParriedAnimation, animId)
+            or table.find(ParryingAnimation, animId)
+            or table.find(StunnedAnimation, animId)
+            or table.find(ParryFailed, animId)
+
+        if not isSystem then
+            print(string.format(
+                "[Self Training] Local animation seen | %s | %s | %.3f%s",
+                animId,
+                tostring(anim.Name or "Unknown"),
+                tonumber(anim.TimePosition) or 0,
+                cfg and (" | " .. tostring(cfg.Style) .. " " .. tostring(cfg.DisplayName)) or " | NOT IN CONFIG"
+            ))
+        end
+    end
+
+    if table.find(ParriedAnimation, animId) then
         OnSuccessfulParry()
     end
 
     if table.find(ParryingAnimation, animId) then
-        if not InputRegisteredTime then return end 
-
-        -- For someone reason it was running before UIS??
-       --scheduler.delay(0.01, function()
-          --  if InputRegisteredTime then
-                OnParryingAnimationSuccess()
-          --  end
-       -- end)
-    end
-    
-    if table.find(StunnedAnimation, animId) then
-        -- keypress(string.byte()) if u f in a stun u get a shaky block 
-     --  OnStunned()
-     --  print("stunned")
+        if not InputRegisteredTime then return end
+        OnParryingAnimationSuccess()
     end
 
     if GameConfig[animId] then
-        local attackConfig = GameConfig[animId]
-        local timePosition = tonumber(anim.TimePosition) or 0
-        local now = os.clock()
-
-        _G.__FFTM_SelfTrainingAttack = {
-            AnimationId = animId,
-            StartTime = now - timePosition,
-            CreatedAt = now,
-            Style = attackConfig.Style,
-            DisplayName = attackConfig.DisplayName,
-            PressTime = nil,
-            PingAtPress = nil,
-        }
-
-        print(string.format(
-            "[Self Training] Attack detected | %s | %s | %s | start=%.3f",
-            tostring(attackConfig.Style or "Unknown"),
-            tostring(attackConfig.DisplayName or "Unknown"),
-            tostring(animId),
-            timePosition
-        ))
-
         print("player is m1ing")
         OnStunned()
     end
-
 end
 
 local AnimationAdded = LocalTracker.AnimationAdded:Connect(onLocalAnimationAdded)
