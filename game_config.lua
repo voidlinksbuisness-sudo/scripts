@@ -236,7 +236,7 @@ local GameConfig = {
     ["StrikerAnims"] = {
         ["rbxassetid://116642061934550"] = {
             DisplayName = "1stM1",
-            ReactionTime = 0.18,
+            ReactionTime = 0.2,
         },
         ["rbxassetid://115234849770695"] = {
             DisplayName = "2ndM1",
