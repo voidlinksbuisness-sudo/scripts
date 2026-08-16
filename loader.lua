@@ -71,43 +71,122 @@ if mainSource == nil then
     return
 end
 
--- Matcha does not reliably preserve returned module tables between separate
--- loadstring chunks, and it also does not reliably capture outer locals into
--- nested functions. So dependencies are created in ONE chunk and then passed
--- EXPLICITLY as parameters to the main function.
-local compositeSource =
-    "local __AnimationTrackerClass = (function()\n"
-    .. animationSource
-    .. "\nend)()\n\n"
+-- ============================================================
+-- MATCHA-SAFE SPLIT LOADER
+-- ============================================================
+-- The old loader concatenated every dependency + main into one enormous
+-- chunk. Each source compiles on its own, but Matcha can choke on the
+-- combined parser/register state. Instead:
+--
+--   1. AnimationTracker executes separately and exposes _G.AnimationTracker.
+--   2. ESP Utility executes separately and exposes _G.ESP_Utility.
+--   3. GameConfig executes in a tiny wrapper and is saved to _G.__FFTM_GameConfig.
+--   4. Main executes separately with those globals copied to locals INSIDE
+--      the same Main chunk, so nested Main functions capture them normally.
+--
+-- This avoids relying on cross-loadstring return values.
 
-    .. "local __ESP_Utility = (function()\n"
-    .. espSource
-    .. "\nend)()\n\n"
+local function CompileAndRun(name, source)
+    print("[FFTM] Compiling " .. name .. "...")
 
-    .. "local __GameConfig = (function()\n"
-    .. gameConfigSource
-    .. "\nend)()\n\n"
+    local chunk = loadstring(source)
 
-    .. "local function __FFTM_RUN_MAIN(AnimationTrackerClass, ESP_Utility, GameConfig)\n"
-    .. mainSource
-    .. "\nend\n\n"
+    if not chunk then
+        warn("[FFTM Loader] " .. name .. " compile failed.")
+        return false
+    end
 
-    .. "__FFTM_RUN_MAIN(__AnimationTrackerClass, __ESP_Utility, __GameConfig)\n"
+    local ok, err = pcall(chunk)
 
-print("[FFTM] Compiling single-chunk core with explicit dependencies...")
+    if not ok then
+        warn("[FFTM Loader] " .. name .. " runtime failed: " .. tostring(err))
+        return false
+    end
 
-local chunk, compileError = loadstring(compositeSource)
+    print("[FFTM] " .. name .. " loaded.")
+    return true
+end
 
-if not chunk then
-    warn("[FFTM Loader] Compile failed: " .. tostring(compileError))
+
+-- ------------------------------------------------------------
+-- AnimationTracker
+-- ------------------------------------------------------------
+if not CompileAndRun("AnimationTracker", animationSource) then
     return
 end
 
-local ok, runError = pcall(chunk)
+if type(_G.AnimationTracker) ~= "table"
+    or type(_G.AnimationTracker.new) ~= "function" then
+
+    warn("[FFTM Loader] AnimationTracker did not expose _G.AnimationTracker.")
+    return
+end
+
+
+-- ------------------------------------------------------------
+-- ESP Utility
+-- ------------------------------------------------------------
+if not CompileAndRun("ESP Utility", espSource) then
+    return
+end
+
+if type(_G.ESP_Utility) ~= "table"
+    or type(_G.ESP_Utility.NewTracker) ~= "function" then
+
+    warn("[FFTM Loader] ESP Utility did not expose _G.ESP_Utility.")
+    return
+end
+
+
+-- ------------------------------------------------------------
+-- GameConfig
+-- ------------------------------------------------------------
+-- game_config.lua returns its table, so capture that result entirely INSIDE
+-- this small chunk and move it into _G. This avoids depending on Matcha
+-- preserving a return value between separate host loadstring calls.
+local gameConfigWrapper =
+    "_G.__FFTM_GameConfig = (function()\n"
+    .. gameConfigSource
+    .. "\nend)()\n"
+    .. "if type(_G.__FFTM_GameConfig) ~= 'table' then "
+    .. "error('[FFTM] GameConfig wrapper did not produce a table') end\n"
+
+if not CompileAndRun("Game Config", gameConfigWrapper) then
+    return
+end
+
+if type(_G.__FFTM_GameConfig) ~= "table" then
+    warn("[FFTM Loader] Game Config global is missing after load.")
+    return
+end
+
+
+-- ------------------------------------------------------------
+-- Main
+-- ------------------------------------------------------------
+-- These dependency locals are declared in the EXACT SAME chunk as mainSource.
+-- Therefore functions declared inside fftm_main.lua capture them normally.
+local mainWrapper =
+    "local AnimationTrackerClass = _G.AnimationTracker\n"
+    .. "local ESP_Utility = _G.ESP_Utility\n"
+    .. "local GameConfig = _G.__FFTM_GameConfig\n"
+    .. "\n"
+    .. mainSource
+
+print("[FFTM] Compiling Main with split global dependencies...")
+
+local mainChunk = loadstring(mainWrapper)
+
+if not mainChunk then
+    warn("[FFTM Loader] Main compile failed.")
+    return
+end
+
+local ok, runError = pcall(mainChunk)
 
 if not ok then
-    warn("[FFTM Loader] Runtime failed: " .. tostring(runError))
+    warn("[FFTM Loader] Main runtime failed: " .. tostring(runError))
     return
 end
 
-print("[FFTM] Full build loaded successfully.")
+print("[FFTM] Full build loaded successfully (split-loader mode).")
