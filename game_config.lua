@@ -246,11 +246,13 @@ local GameConfig = {
             DisplayName = "3rdM1"
             ReactionTime = 0.32,
         },
-        ["rbxassetid://77710266587706"] = {
-            DisplayName = "4thM1"
+        ["rbxassetid://73777821288331"] = {
+            DisplayName = "4thM1",
+            ReactionTime = 0.22,
         },
-        ["rbxassetid://114364673509520"] = {
+        ["rbxassetid://99309341097380"] = {
             DisplayName = "M2"
+            ReactionTime = 0.3,
         },
         ["rbxassetid://132840225082238"] = {
             DisplayName = "1stM1"
