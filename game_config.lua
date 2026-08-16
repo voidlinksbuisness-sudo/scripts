@@ -253,18 +253,6 @@ local GameConfig = {
         ["rbxassetid://99309341097380"] = {
             DisplayName = "M2",
             ReactionTime = 0.3,
-        },
-        ["rbxassetid://132840225082238"] = {
-            DisplayName = "1stM1"
-        },
-        ["rbxassetid://88761422474765"] = {
-            DisplayName = "2ndM1"
-        },
-        ["rbxassetid://98462236639320"] = {
-            DisplayName = "3rdM1"
-        },
-        ["rbxassetid://122451562066756"] = {
-            DisplayName = "4thM1"
         }
     },
     ["KureAnims"] = {
