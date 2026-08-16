@@ -339,7 +339,7 @@ function ESP_Utility:AddText(Reference, NewColor, Value, Callback)
     NewText.Center = false
     NewText.Outline = true
     NewText.Color = NewColor or Color3.fromRGB(200, 200, 200)
-
+	NewText.Font = Drawing.Fonts.Fortnite
     local currentText = tostring((Callback and Callback()) or Value or "")
     local currentLineCount = GetLineCount(currentText)
 
