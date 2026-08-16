@@ -737,295 +737,6 @@ local DefaultReactionTime = 0.1
 local ParryOffset = 0
 local BlockHoldTime = 0.27
 
--- ==========================================
--- PARRY LEARNING / DATABASE
--- ==========================================
--- Kept inside one local module to avoid Matcha's 200-local register ceiling.
-local ParryLearningAPI = (function()
-    local Config = {
-        Enabled = true,
-        ApiBase = "https://fftm-parry-api.voidlinksbuisness.workers.dev",
-        ApiToken = "fftm_8fJ2kQ9xLm4Vt7Pz1Nc6Ry3Hs0Wd5Ba",
-        PingBucketSize = 20,
-        MinimumSamples = 7,
-        CacheSeconds = 15,
-        RequestTimeout = 4,
-        MinAcceptedTiming = 0.02,
-        MaxAcceptedTiming = 1.00,
-    }
-
-    local HttpService = game:GetService("HttpService")
-    local Cache = {}
-    local LookupInFlight = {}
-
-    local function UrlEncode(value)
-        value = tostring(value or "")
-        value = value:gsub("\n", "\r\n")
-        value = value:gsub("([^%w%-_%.~])", function(char)
-            return string.format("%%%02X", string.byte(char))
-        end)
-        return value
-    end
-
-    local function GetPingBucket(pingMs)
-        local size = tonumber(Config.PingBucketSize) or 20
-        local ping = math.max(0, tonumber(pingMs) or 0)
-        local lower = math.floor(ping / size) * size
-        return lower, lower + size, tostring(lower) .. "-" .. tostring(lower + size)
-    end
-
-    local function CacheKey(style, animationId, bucketLabel)
-        return tostring(style or "Unknown")
-            .. "|" .. tostring(animationId or "Unknown")
-            .. "|" .. tostring(bucketLabel or "Unknown")
-    end
-
-    local function Http(method, path, body)
-        if not Config.Enabled then
-            return nil
-        end
-
-        local url = tostring(Config.ApiBase) .. tostring(path or "")
-        local headers = {
-            ["Accept"] = "application/json",
-            ["Authorization"] = "Bearer " .. tostring(Config.ApiToken or ""),
-        }
-
-        local ok, responseBody = pcall(function()
-            if method == "GET" then
-                -- Matcha exposes DataModel:HttpGet directly.
-                return game:HttpGet(url, headers)
-            elseif method == "POST" then
-                headers["Content-Type"] = "application/json"
-
-                local encodedBody = body and HttpService:JSONEncode(body) or "{}"
-
-                -- Matcha signature:
-                -- game:HttpPost(url, data, contentType?, headers?)
-                return game:HttpPost(
-                    url,
-                    encodedBody,
-                    "application/json",
-                    headers
-                )
-            else
-                error("Unsupported learning HTTP method: " .. tostring(method))
-            end
-        end)
-
-        if not ok then
-            warn(string.format(
-                "[Learning HTTP] %s %s failed: %s",
-                tostring(method),
-                tostring(path),
-                tostring(responseBody)
-            ))
-            return nil
-        end
-
-        if type(responseBody) ~= "string" or responseBody == "" then
-            warn(string.format(
-                "[Learning HTTP] %s %s returned an empty response.",
-                tostring(method),
-                tostring(path)
-            ))
-            return {}
-        end
-
-        local decodeOk, decoded = pcall(function()
-            return HttpService:JSONDecode(responseBody)
-        end)
-
-        if decodeOk and type(decoded) == "table" then
-            return decoded
-        end
-
-        warn(string.format(
-            "[Learning HTTP] Could not decode response from %s %s | %s",
-            tostring(method),
-            tostring(path),
-            tostring(responseBody)
-        ))
-        return nil
-    end
-
-    local API = {}
-
-    function API.GetLearnedTiming(attackConfig, animationId, pingMs)
-        if not Config.Enabled or not attackConfig or not animationId then
-            return nil, nil
-        end
-
-        local style = attackConfig.Style or "Unknown"
-        local _, _, bucketLabel = GetPingBucket(pingMs)
-        local key = CacheKey(style, animationId, bucketLabel)
-        local cached = Cache[key]
-        local now = os.clock()
-
-        if cached and (now - cached.FetchedAt) < Config.CacheSeconds then
-            if cached.Found then return cached.Timing, cached end
-            return nil, cached
-        end
-
-        if not LookupInFlight[key] then
-            LookupInFlight[key] = true
-
-            task.spawn(function()
-                local ok, err = pcall(function()
-                    local path =
-                        "/v1/timing?style=" .. UrlEncode(style)
-                        .. "&animation_id=" .. UrlEncode(animationId)
-                        .. "&ping_ms=" .. UrlEncode(math.floor((tonumber(pingMs) or 0) + 0.5))
-
-                    local result = Http("GET", path, nil)
-                    local fetchedAt = os.clock()
-
-                    if result and result.found == true
-                        and tonumber(result.timing_seconds)
-                        and (tonumber(result.sample_count) or 0) >= Config.MinimumSamples then
-
-                        Cache[key] = {
-                            Found = true,
-                            Timing = tonumber(result.timing_seconds),
-                            Count = tonumber(result.sample_count) or 0,
-                            PingRange = result.ping_range or bucketLabel,
-                            FetchedAt = fetchedAt,
-                        }
-
-                        print(string.format(
-                            "[Learning] Cached %s | %s | %s | %.3fs | samples=%d",
-                            tostring(style), tostring(animationId),
-                            tostring(result.ping_range or bucketLabel),
-                            tonumber(result.timing_seconds),
-                            tonumber(result.sample_count) or 0
-                        ))
-                    else
-                        Cache[key] = {
-                            Found = false,
-                            Count = result and tonumber(result.sample_count) or 0,
-                            PingRange = (result and result.ping_range) or bucketLabel,
-                            FetchedAt = fetchedAt,
-                        }
-                    end
-                end)
-
-                LookupInFlight[key] = nil
-
-                if not ok then
-                    warn("[Learning] Background lookup failed; fallback remains active: " .. tostring(err))
-                    Cache[key] = {
-                        Found = false,
-                        Count = 0,
-                        PingRange = bucketLabel,
-                        FetchedAt = os.clock(),
-                    }
-                end
-            end)
-        end
-
-        return nil, {
-            Found = false,
-            Count = cached and cached.Count or 0,
-            PingRange = bucketLabel,
-            FetchedAt = now,
-            Pending = true,
-        }
-    end
-
-    function API.SubmitSuccessfulParry(attackConfig, animationId, timingSeconds, pingMs)
-        if not Config.Enabled or not attackConfig or not animationId
-            or type(timingSeconds) ~= "number" then
-            return
-        end
-
-        if timingSeconds < Config.MinAcceptedTiming
-            or timingSeconds > Config.MaxAcceptedTiming then
-
-            warn(string.format(
-                "[Learning] Rejected impossible timing locally | %s | %s | %.3fs",
-                tostring(attackConfig.Style or "Unknown"),
-                tostring(attackConfig.DisplayName or animationId),
-                timingSeconds
-            ))
-            return
-        end
-
-        local lower, upper, bucketLabel = GetPingBucket(pingMs)
-        local style = attackConfig.Style or "Unknown"
-
-        task.spawn(function()
-            local result = Http("POST", "/v1/success", {
-                game = GameName,
-                style = style,
-                animation_id = tostring(animationId),
-                display_name = tostring(attackConfig.DisplayName or ""),
-                ping_ms = tonumber(pingMs) or 0,
-                ping_bucket_min = lower,
-                ping_bucket_max = upper,
-                timing_seconds = timingSeconds,
-            })
-
-            if not result then
-                warn(string.format(
-                    "[Learning] Could not upload success for %s | %s | %s",
-                    tostring(style),
-                    tostring(attackConfig.DisplayName or animationId),
-                    bucketLabel
-                ))
-                return
-            end
-
-            local key = CacheKey(style, animationId, bucketLabel)
-            local count = tonumber(result.sample_count) or 0
-            local learned = tonumber(result.timing_seconds)
-
-            if result.accepted == false then
-                warn(string.format(
-                    "[Learning] Server rejected outlier | %s | %s | %.3fs | baseline=%.3fs | clean=%d | rejected=%s",
-                    tostring(style),
-                    tostring(attackConfig.DisplayName or animationId),
-                    timingSeconds,
-                    tonumber(result.baseline_median or learned) or 0,
-                    count,
-                    tostring(result.rejected_count or "?")
-                ))
-
-                if learned and count >= Config.MinimumSamples then
-                    Cache[key] = {
-                        Found = true,
-                        Timing = learned,
-                        Count = count,
-                        PingRange = result.ping_range or bucketLabel,
-                        FetchedAt = os.clock(),
-                    }
-                end
-
-                return
-            end
-
-            Cache[key] = {
-                Found = learned ~= nil and count >= Config.MinimumSamples,
-                Timing = learned,
-                Count = count,
-                PingRange = result.ping_range or bucketLabel,
-                FetchedAt = os.clock(),
-            }
-
-            print(string.format(
-                "[Learning] SUCCESS logged | %s | %s | ping %s ms | %.3fs | clean=%d%s%s",
-                tostring(style),
-                tostring(attackConfig.DisplayName or animationId),
-                tostring(result.ping_range or bucketLabel),
-                timingSeconds,
-                count,
-                learned and (" | learned=" .. string.format("%.3fs", learned)) or "",
-                result.rejected_count and (" | filtered=" .. tostring(result.rejected_count)) or ""
-            ))
-        end)
-    end
-
-    return API
-end)()
 
 -- ==========================================
 local FlattenedConfig = {}
@@ -1650,14 +1361,6 @@ local InputRegisteredTime = nil
 local ParryRegisteredTime = nil
 local InputLatency = 0 -- (Parry - Input)
 
-_G.__FFTM_RecentParryAttempt = nil
-_G.__FFTM_RecentParryAttemptTTL = 1.5
-_G.__FFTM_RecentDodgeAttempt = nil
-_G.__FFTM_DodgeAttemptToken = 0
-_G.__FFTM_SelfTrainingAttack = nil
-_G.__FFTM_SelfTrainingTTL = 2.0
-_G.__FFTM_SelfTrainingDefaultStyle = "StrikerAnims"
-
 
 local ParryState = {
     IDLE = "idle",
@@ -1758,173 +1461,48 @@ local function GetHeightMultiplierForCharacter(TargetCharacter)
 end
 
 
-function Dodge(regData, attackConfig)
+function Dodge()
+    --keyrelease(DodgeKey)
     BlockEnd()
 
-    local pressNow = os.clock()
-    local startTime = regData and tonumber(regData.StartTime) or nil
-    local dodgeTiming = startTime and (pressNow - startTime) or nil
-
-    local localChar = LocalPlayer.Character
-    local localHum = localChar and localChar:FindFirstChildOfClass("Humanoid")
-    local healthBefore = localHum and tonumber(localHum.Health) or nil
-
-    _G.__FFTM_DodgeAttemptToken = (_G.__FFTM_DodgeAttemptToken or 0) + 1
-    local myToken = _G.__FFTM_DodgeAttemptToken
-
-    _G.__FFTM_RecentDodgeAttempt = {
-        Token = myToken,
-        AnimationId = regData and regData.AnimationId or nil,
-        StartTime = startTime,
-        PressTime = pressNow,
-        Timing = dodgeTiming,
-        PingAtPlan = regData and regData.PingAtPlan or nil,
-        BlockExpire = regData and regData.BlockExpire or nil,
-        AttackConfig = attackConfig,
-        HealthBefore = healthBefore,
-        CreatedAt = pressNow,
-    }
-
-    for i = 1, 12, 1 do
+    for i = 1, 12, 1 do  
         keypress(DodgeKey)
-        keyrelease(DodgeKey)
+        keyrelease(DodgeKey) 
     end
-
-    -- Wait through the expected M2 danger window, then confirm that this
-    -- exact dodge attempt avoided damage before logging it as successful.
-    local now = os.clock()
-    local verifyDelay = 0.55
-
-    if regData and tonumber(regData.BlockExpire) then
-        verifyDelay = tonumber(regData.BlockExpire) - now + 0.20
-    end
-
-    verifyDelay = math.max(0.25, math.min(1.25, verifyDelay))
-
-    scheduler.delay(verifyDelay, function()
-        local attempt = _G.__FFTM_RecentDodgeAttempt
-
-        if not attempt or attempt.Token ~= myToken then
-            return
-        end
-
-        _G.__FFTM_RecentDodgeAttempt = nil
-
-        local character = LocalPlayer.Character
-        local humanoid = character and character:FindFirstChildOfClass("Humanoid")
-        local healthAfter = humanoid and tonumber(humanoid.Health) or nil
-
-        -- We only call it successful when we can actually verify that health
-        -- did not drop during the M2 danger window.
-        if attempt.HealthBefore == nil or healthAfter == nil then
-            warn("[Learning] Could not verify M2 dodge success because health was unavailable.")
-            return
-        end
-
-        if healthAfter < (attempt.HealthBefore - 0.01) then
-            print(string.format(
-                "[Learning] M2 dodge failed | %s | %s | health %.1f -> %.1f",
-                tostring(attempt.AttackConfig and attempt.AttackConfig.Style or "Unknown"),
-                tostring(attempt.AttackConfig and attempt.AttackConfig.DisplayName or attempt.AnimationId),
-                attempt.HealthBefore,
-                healthAfter
-            ))
-            return
-        end
-
-        local config = attempt.AttackConfig
-        local animId = attempt.AnimationId
-        local timing = tonumber(attempt.Timing)
-
-        if not config or not animId or not timing or timing < 0 or timing > 1.5 then
-            warn("[Learning] Successful M2 dodge detected, but timing data was invalid.")
-            return
-        end
-
-        local successPing =
-            tonumber(GetPingValue())
-            or tonumber(attempt.PingAtPlan)
-            or 0
-
-        Notify(
-            "Dodge Success",
-            string.format(
-                "%.3fs - %s %s | %.0fms",
-                timing,
-                tostring(config.Style),
-                tostring(config.DisplayName),
-                successPing
-            ),
-            3
-        )
-
-        print(string.format(
-            "[Learning] SUCCESSFUL DODGE -> upload queued | %s | %s | %.3fs | ping=%.0fms",
-            tostring(config.Style),
-            tostring(config.DisplayName),
-            timing,
-            successPing
-        ))
-
-        -- Reuse the existing successful-timing endpoint. M2 is distinguished
-        -- by its animation ID/style/display name, so it learns independently.
-        ParryLearningAPI.SubmitSuccessfulParry(
-            config,
-            animId,
-            timing,
-            successPing
-        )
-    end)
+    --  mouse2click()    
 end
 
 function BlockStart(StartTime, HoldFor)
-    if not StartTime then
+    if not StartTime then  
         warn("Lacking a start time")
         return
     end
 
-    if ParryRegisteredTime then
-        local TimeBetweenLastParry = os.clock() - ParryRegisteredTime
-        if TimeBetweenLastParry < 0.8 then
-            print("parry is gonna be on cooldown")
-        end
+    if ParryRegisteredTime then  
+       local TimeBetweenLastParry = os.clock() - ParryRegisteredTime
+         if TimeBetweenLastParry < 0.8 then  
+             print("parry is gonna be on cooldown")
+         --    return
+         end 
     end
 
-    if CurrentParryState ~= ParryState.IDLE
-        and CurrentParryState ~= ParryState.INPUT_PENDING
-        and CurrentParryState ~= ParryState.PARRYING then
+    if CurrentParryState ~= ParryState.IDLE then  
         warn("tried to press in a non idle state bypass")
         TransitionToState(ParryState.IDLE)
+    --    return
     end
 
-    local holdDuration = HoldFor or BlockHoldTime
-    ReleaseDeadline = StartTime + holdDuration
+
+    local HoldFor = HoldFor or BlockHoldTime
+    ReleaseDeadline = StartTime + HoldFor   
+
+    --print(now, duration, "attempted block", holdTime and holdTime - now)
+
     KeyHeld = true
-
+  --  keyrelease(ParryKey) 
+    
     if AutoParryToggle.Get() == true then
-        local pressNow = os.clock()
-
-        if CurrentParryState == ParryState.IDLE then
-            InputRegisteredTime = pressNow
-            TransitionToState(ParryState.INPUT_PENDING)
-        elseif not InputRegisteredTime then
-            InputRegisteredTime = pressNow
-        end
-
-        if LastPendingRegData then
-            _G.__FFTM_RecentParryAttempt = {
-                AnimationId = LastPendingRegData.AnimationId,
-                StartTime = LastPendingRegData.StartTime,
-                BlockStart = LastPendingRegData.BlockStart,
-                BlockExpire = LastPendingRegData.BlockExpire,
-                PingAtPlan = LastPendingRegData.PingAtPlan,
-                TimingSource = LastPendingRegData.TimingSource,
-                PressTime = pressNow,
-                CreatedAt = pressNow,
-            }
-        end
-
-        keypress(ParryKey)
+        keypress(ParryKey)    
     end
 end
 
@@ -1946,105 +1524,12 @@ end
 --                  ==[Input State]==
 -- Local F keypress
 local function OnInputF()
-    local pressNow = os.clock()
-
-    -- ======================================================
-    -- SELF TRAINING ACTIVE SCAN
-    -- ======================================================
-    -- Do NOT rely on AnimationAdded or GameConfig already knowing the ID.
-    -- When F is pressed, scan our currently playing animations and choose
-    -- the most likely attack animation.
-    local bestAnim = nil
-    local bestConfig = nil
-    local bestScore = -math.huge
-
-    local localChar = LocalPlayer.Character
-    if localChar then
-        local ok, activeAnims = pcall(function()
-            return LocalTracker:Update(localChar)
-        end)
-
-        if ok and type(activeAnims) == "table" then
-            for _, anim in activeAnims do
-                local animId = tostring(anim.AnimationId or "")
-                local timePos = tonumber(anim.TimePosition) or 999
-                local name = tostring(anim.Name or "")
-
-                local isDefensive =
-                    table.find(ParriedAnimation, animId)
-                    or table.find(ParryingAnimation, animId)
-                    or table.find(StunnedAnimation, animId)
-                    or table.find(ParryFailed, animId)
-
-                -- Only consider animations that have started recently.
-                if animId ~= ""
-                    and not isDefensive
-                    and timePos >= 0
-                    and timePos <= 1.25 then
-
-                    local config = GameConfig[animId]
-                    local score = 0
-
-                    -- Known configured attacks always win.
-                    if config then
-                        score += 1000
-                    end
-
-                    -- Names are only a hint; Matcha can expose strange names.
-                    local lowerName = string.lower(name)
-                    if lowerName:find("m1", 1, true)
-                        or lowerName:find("m2", 1, true)
-                        or lowerName:find("attack", 1, true)
-                        or lowerName:find("punch", 1, true)
-                        or lowerName:find("kick", 1, true)
-                        or lowerName:find("strike", 1, true) then
-                        score += 100
-                    end
-
-                    -- Prefer the animation that started most recently.
-                    score += math.max(0, 50 - (timePos * 40))
-
-                    if score > bestScore then
-                        bestScore = score
-                        bestAnim = anim
-                        bestConfig = config
-                    end
-                end
-            end
-        end
-    end
-
-    if bestAnim then
-        local animId = tostring(bestAnim.AnimationId)
-        local timePos = tonumber(bestAnim.TimePosition) or 0
-        local config = bestConfig
-
-        _G.__FFTM_SelfTrainingAttack = {
-            AnimationId = animId,
-            StartTime = pressNow - timePos,
-            CreatedAt = pressNow,
-            Style = config and config.Style or (_G.__FFTM_SelfTrainingDefaultStyle or "StrikerAnims"),
-            DisplayName = config and config.DisplayName or tostring(bestAnim.Name or "SelfAttack"),
-            PressTime = pressNow,
-            PingAtPress = tonumber(GetPingValue()) or 0,
-            UnknownConfig = config == nil,
-        }
-
-        print(string.format(
-            "[Self Training] ATTACK CAPTURED ON F | %s | %s | %s | timing=%.3fs%s",
-            tostring(_G.__FFTM_SelfTrainingAttack.Style),
-            tostring(_G.__FFTM_SelfTrainingAttack.DisplayName),
-            animId,
-            timePos,
-            config and "" or " | NOT IN CONFIG"
-        ))
-    else
-        warn("[Self Training] F pressed but no recent attack animation was found.")
-    end
 
     if CurrentParryState == ParryState.IDLE then
-        InputRegisteredTime = pressNow
+        InputRegisteredTime = os.clock()
         TransitionToState(ParryState.INPUT_PENDING)
+    else
+    --    print("F was pressed while machine wasnt idle")
     end
 end
 
@@ -2157,145 +1642,45 @@ end
 
 
 local function OnSuccessfulParry()
-    local regData = LastPendingRegData
-    local sourceLabel = "target"
+    if CurrentParryState == ParryState.PARRYING then  
 
-    -- Normal auto-parry race fallback.
-    if not regData and _G.__FFTM_RecentParryAttempt then
-        local age = os.clock() - (_G.__FFTM_RecentParryAttempt.CreatedAt or 0)
-
-        if age <= (_G.__FFTM_RecentParryAttemptTTL or 1.5) then
-            regData = _G.__FFTM_RecentParryAttempt
-            sourceLabel = "recent-target"
-        else
-            _G.__FFTM_RecentParryAttempt = nil
+        local AnimId = LastPendingRegData.AnimationId
+        local AttackConfig = GameConfig[AnimId]
+        local ParryPressTime = tonumber(InputRegisteredTime - LastPendingRegData.StartTime)
+        local EstimatedParryWindow = os.clock() - LastPendingRegData.StartTime
+        
+        -- SANITY CHECK happens when we evaludte outside of parrying
+        if ParryPressTime > 1 or ParryPressTime < 0 then
+        --    print("HERE", ParryPressTime, os.clock() - InputRegisteredTime, os.clock() - LastPendingRegData.StartTime)
+        --    warn("AAAAAAA")
+            return
         end
-    end
-
-    -- SELF TRAINING FALLBACK:
-    -- A successful local parry animation can validate our manually timed F
-    -- against our own configured attack animation.
-    if not regData and _G.__FFTM_SelfTrainingAttack then
-        local selfAttack = _G.__FFTM_SelfTrainingAttack
-        local age = os.clock() - (selfAttack.CreatedAt or 0)
-
-        if age <= (_G.__FFTM_SelfTrainingTTL or 2.0)
-            and tonumber(selfAttack.PressTime)
-            and tonumber(selfAttack.StartTime) then
-
-            regData = {
-                AnimationId = selfAttack.AnimationId,
-                StartTime = selfAttack.StartTime,
-                PressTime = selfAttack.PressTime,
-                PingAtPlan = selfAttack.PingAtPress,
-                SelfTraining = true,
-                SelfTrainingStyle = selfAttack.Style,
-                SelfTrainingDisplayName = selfAttack.DisplayName,
-            }
-
-            sourceLabel = "self-training"
-        elseif age > (_G.__FFTM_SelfTrainingTTL or 2.0) then
-            _G.__FFTM_SelfTrainingAttack = nil
-        end
-    end
-
-    if not regData then
-        warn("[Learning] Confirmed parry but no recent attack registration.")
-        return
-    end
-
-    local AnimId = regData.AnimationId
-    local AttackConfig = AnimId and GameConfig[AnimId]
-
-    -- For self-training, a brand-new Striker animation may not exist in
-    -- GameConfig yet. Build a temporary config so we can still save the
-    -- animation ID + successful timing to D1.
-    if not AttackConfig and regData.SelfTraining then
-        local selfAttack = _G.__FFTM_SelfTrainingAttack
-
-        AttackConfig = {
-            Style =
-                (selfAttack and selfAttack.Style)
-                or (_G.__FFTM_SelfTrainingDefaultStyle or "StrikerAnims"),
-
-            DisplayName =
-                (selfAttack and selfAttack.DisplayName)
-                or "UnconfiguredSelfAttack",
-        }
-
-        print(string.format(
-            "[Self Training] Unconfigured animation will still be uploaded | %s | %s | %s",
-            tostring(AttackConfig.Style),
-            tostring(AttackConfig.DisplayName),
-            tostring(AnimId)
-        ))
-    end
-
-    if not AttackConfig then
-        warn("[Learning] Confirmed parry has no config for " .. tostring(AnimId))
-        return
-    end
-
-    local pressTime = tonumber(regData.PressTime) or tonumber(InputRegisteredTime)
-    local startTime = tonumber(regData.StartTime)
-
-    if not pressTime or not startTime then
-        warn("[Learning] Confirmed parry missing timestamps.")
-        return
-    end
-
-    local ParryPressTime = pressTime - startTime
-    local EstimatedParryWindow = os.clock() - startTime
-
-    if ParryPressTime > 1 or ParryPressTime < 0 then
-        warn("[Learning] Ignoring impossible timing: " .. tostring(ParryPressTime))
-        return
-    end
-
-    Notify(
-        regData.SelfTraining and "Self Parry Logged" or "Parry Success",
-        string.format(
-            "%.3fs PT: %.3fs - %s %s",
-            ParryPressTime,
-            EstimatedParryWindow,
-            tostring(AttackConfig.Style),
-            tostring(AttackConfig.DisplayName)
+        
+        -- NOTIFY UI
+        Notify(
+            "Parry Success", 
+            string.format("%.3fs PT: %.3fs - %s %s", 
+                ParryPressTime, 
+                EstimatedParryWindow,
+                AttackConfig.Style, 
+                AttackConfig.DisplayName
+            )
         )
-    )
+        
+        LastPendingRegData.LearnedParryTime = ParryPressTime
+        LastPendingRegData.Success = true
+        --LastPendingRegData.Processed = true
 
-    regData.LearnedParryTime = ParryPressTime
-    regData.Success = true
-
-    local successPing =
-        tonumber(GetPingValue())
-        or tonumber(regData.PingAtPlan)
-        or 0
-
-    print(string.format(
-        "[Learning] Confirmed parry -> upload queued | %s | %s | %.3fs | ping=%.0fms | source=%s",
-        tostring(AttackConfig.Style),
-        tostring(AttackConfig.DisplayName),
-        ParryPressTime,
-        successPing,
-        sourceLabel
-    ))
-
-    ParryLearningAPI.SubmitSuccessfulParry(
-        AttackConfig,
-        AnimId,
-        ParryPressTime,
-        successPing
-    )
-
-    if regData.SelfTraining then
-        _G.__FFTM_SelfTrainingAttack = nil
+        -- CLEANUP
+        --InputRegisteredTime = nil
+        
+        ResetParryState()
+        TransitionToState(ParryState.SUCCESS)
+        TransitionToState(ParryState.IDLE)
+    else
+        warn("Tried to evaluate outside of parrying")
+        print(CurrentParryState)
     end
-
-    _G.__FFTM_RecentParryAttempt = nil
-
-    ResetParryState()
-    TransitionToState(ParryState.SUCCESS)
-    TransitionToState(ParryState.IDLE)
 end
 
 local function OnWindowExceeded()
@@ -2373,45 +1758,37 @@ end
 -- ==========================================
 
 
--- Successful timing learning is handled by the database client above.
+local ParryLearningLog = {}  -- {[animId] = {TriggerTime, Style, DisplayName, Count}}
 
 local function onLocalAnimationAdded(anim)
-    local animId = tostring(anim.AnimationId or "")
+    local animId = anim.AnimationId
 
-    -- Always show what the local tracker can see. This is diagnostic only;
-    -- self-training itself no longer depends on this callback.
-    if animId ~= "" then
-        local cfg = GameConfig[animId]
-        local isSystem =
-            table.find(ParriedAnimation, animId)
-            or table.find(ParryingAnimation, animId)
-            or table.find(StunnedAnimation, animId)
-            or table.find(ParryFailed, animId)
-
-        if not isSystem then
-            print(string.format(
-                "[Self Training] Local animation seen | %s | %s | %.3f%s",
-                animId,
-                tostring(anim.Name or "Unknown"),
-                tonumber(anim.TimePosition) or 0,
-                cfg and (" | " .. tostring(cfg.Style) .. " " .. tostring(cfg.DisplayName)) or " | NOT IN CONFIG"
-            ))
-        end
-    end
-
-    if table.find(ParriedAnimation, animId) then
+    if table.find(ParriedAnimation, animId) then  
         OnSuccessfulParry()
     end
 
     if table.find(ParryingAnimation, animId) then
-        if not InputRegisteredTime then return end
-        OnParryingAnimationSuccess()
+        if not InputRegisteredTime then return end 
+
+        -- For someone reason it was running before UIS??
+       --scheduler.delay(0.01, function()
+          --  if InputRegisteredTime then
+                OnParryingAnimationSuccess()
+          --  end
+       -- end)
+    end
+    
+    if table.find(StunnedAnimation, animId) then
+        -- keypress(string.byte()) if u f in a stun u get a shaky block 
+     --  OnStunned()
+     --  print("stunned")
     end
 
-    if GameConfig[animId] then
+    if GameConfig[animId] then  
         print("player is m1ing")
         OnStunned()
     end
+
 end
 
 local AnimationAdded = LocalTracker.AnimationAdded:Connect(onLocalAnimationAdded)
@@ -2479,60 +1856,30 @@ local function UpdateCharacterESP(character, Distance)
     end
 end
 
-local function CalculateParryTiming(attackConfig, StartTime, Target, animationId)
-    local pingMs = tonumber(GetPingValue()) or 0
-
-    -- Learning is optional. Never allow it to abort or delay parry timing.
-    local learnedTiming = nil
-    local learnedInfo = nil
-
-    local learningOk, learnedA, learnedB = pcall(
-        ParryLearningAPI.GetLearnedTiming,
-        attackConfig,
-        animationId,
-        pingMs
-    )
-
-    if learningOk then
-        learnedTiming = learnedA
-        learnedInfo = learnedB
-    else
-        warn("[Learning] Timing lookup isolated from auto parry: " .. tostring(learnedA))
+local function CalculateParryTiming(attackConfig, StartTime, Target)
+    
+    local optimalReactionTime = (attackConfig.ReactionTime or DefaultReactionTime)
+    local HeightMultiplier = 1 
+    if HeightToggle.Get() then  
+       HeightMultiplier = GetHeightMultiplierForCharacter(Target)
     end
 
-    local optimalReactionTime
-    local timingSource
+    local CompValue = (GetPingValue()/1000) * 0.5
 
-    if learnedTiming then
-        -- This timing was learned inside the exact current ping bucket, so do NOT
-        -- compensate for ping a second time.
-        optimalReactionTime = learnedTiming
-        timingSource = "learned:" .. tostring(learnedInfo and learnedInfo.PingRange or "?")
-    else
-        -- No learned value for this exact bucket yet:
-        -- fall back to the configured/base timing and use the existing half-ping
-        -- compensation until successful samples populate this bucket.
-        optimalReactionTime = (attackConfig.ReactionTime or DefaultReactionTime)
-
-        if PingCompensateToggle.Get() then
-            optimalReactionTime -= (pingMs / 1000) * 0.5
-        end
-
-        timingSource = "fallback+ping"
-    end
-
-    local HeightMultiplier = 1
-    if HeightToggle.Get() then
-        HeightMultiplier = GetHeightMultiplierForCharacter(Target)
+    if PingCompensateToggle.Get() then  
+        optimalReactionTime -= CompValue
     end
 
     local adjustedReactionTime = (optimalReactionTime * HeightMultiplier) + ParryOffset
+
+
     local parryWindowStart = adjustedReactionTime
     local parryWindowEnd = adjustedReactionTime + ParryWindow
+
     local ClockStart = StartTime + parryWindowStart
     local ClockEnd = StartTime + parryWindowEnd
-
-    return ClockStart, ClockEnd, timingSource, pingMs
+    
+    return ClockStart, ClockEnd
 end
 
 local ConstLatency = 0.018
@@ -2542,7 +1889,7 @@ local function UpdateAnimationRegistry(animKey, anim, now, currentTrackTime, att
 
     if not AnimationRegistry[animKey] then
         local adjustedNow = now - ConstLatency -- - currentTrackTime
-        local BlockStart, BlockExpire, timingSource, pingMs = CalculateParryTiming(attackConfig, adjustedNow, TargetCharacter, anim.AnimationId)
+        local BlockStart, BlockExpire = CalculateParryTiming(attackConfig, adjustedNow, TargetCharacter)
 
         AnimationRegistry[animKey] = {
             StartTime = adjustedNow,
@@ -2557,23 +1904,19 @@ local function UpdateAnimationRegistry(animKey, anim, now, currentTrackTime, att
             BlockExpire = BlockExpire,
             RandomNum = math.random(1, 100),
             LastExecuteTime = 0, -- debounce timestamp
-            TimingSource = timingSource,
-            PingAtPlan = pingMs,
         }
     end
     
     local regData = AnimationRegistry[animKey]
     
     if regData.CurrentTrackTime and (currentTrackTime < regData.CurrentTrackTime) then
-        local BlockStart, BlockExpire, timingSource, pingMs = CalculateParryTiming(attackConfig, now - currentTrackTime, TargetCharacter, anim.AnimationId)
+        local BlockStart, BlockExpire = CalculateParryTiming(attackConfig, now - currentTrackTime, TargetCharacter)
         
         regData.Processed = false
         regData.DidALoop = true
         warn("Loop detected")
         regData.BlockStart = BlockStart
         regData.BlockExpire = BlockExpire
-        regData.TimingSource = timingSource
-        regData.PingAtPlan = pingMs
         regData.StartTime = now - ConstLatency -- - currentTrackTime
     end
     
@@ -2620,19 +1963,17 @@ local function ExecuteParry(regData, attackConfig)
         end)
         DodgeLockoutEnd = os.clock() + 0.2
     elseif isHeavy and AutoDodgeToggle.Get() then
-        if AutoParryToggle.Get() then
-            Dodge(regData, attackConfig)
+        if AutoParryToggle.Get() then  
+            Dodge()            
         end
     --    DodgeLockoutEnd = os.clock() + 0.2
     else 
         if LastPendingRegData ~= regData then
             LastPendingRegData = regData
             BlockStart(LastPendingRegData.BlockStart)
-            print(string.format("Block triggered by [%s | %s] | %s | ping=%.0fms" ,
-                attackConfig.Style,
-                attackConfig.DisplayName,
-                tostring(regData.TimingSource or "unknown"),
-                tonumber(regData.PingAtPlan) or 0
+            print(string.format("Block triggered by [%s | %s] " , 
+                attackConfig.Style, 
+                attackConfig.DisplayName
                 ))
         elseif LastPendingRegData == regData then
             if regData.DidALoop then  
@@ -4002,13 +3343,13 @@ UIS.InputBegan:Connect(function(input, gameProcessed)
 end)
 
 
-STATE_MACHINE_TICK = 0.05
-UTILITY_TICK = 0.5 -- Run 2 times per second
-LastCycleCheck = 0
+local STATE_MACHINE_TICK = 0.05
+local UTILITY_TICK = 0.5 -- Run 2 times per second
+local LastCycleCheck = 0
 
-ManualCycleKeyWasDown = false
+local ManualCycleKeyWasDown = false
 
-function IsManualCycleKeyDown()
+local function IsManualCycleKeyDown()
     local down = false
 
     -- Preferred: normal Roblox physical-key polling.
@@ -4051,7 +3392,7 @@ function IsManualCycleKeyDown()
     return false
 end
 
-function PollManualCycleKey()
+local function PollManualCycleKey()
     local down = IsManualCycleKeyDown()
 
     if down and not ManualCycleKeyWasDown then
@@ -4062,7 +3403,7 @@ function PollManualCycleKey()
     ManualCycleKeyWasDown = down
 end
 
-function MainLoop()
+local function MainLoop()
     PollManualCycleKey()
 
     local now = os.clock()
