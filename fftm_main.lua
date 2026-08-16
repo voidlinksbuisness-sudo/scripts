@@ -1,4 +1,4 @@
--- FFTM_MAIN_BUILD = "2026-08-14-X-CONTEXTACTION-FIX-8"
+-- FFTM_MAIN_BUILD = "2026-08-14-X-CONTEXTACTION-FIX-7"
 --// WABI SABI UI
 loadstring(game:HttpGet("https://scripts.wabisabi.mom/wabi-sabi-ui-lib.lua"))()
 
@@ -826,11 +826,19 @@ local function LearningHttp(method, path, body)
     end)
 
     if not ok or type(response) ~= "table" then
+        warn("[Learning HTTP] Request failed: " .. tostring(response))
         return nil
     end
 
     local status = tonumber(response.StatusCode or response.Status or 0) or 0
     if status < 200 or status >= 300 then
+        warn(string.format(
+            "[Learning HTTP] %s %s returned HTTP %d | %s",
+            tostring(method),
+            tostring(path),
+            status,
+            tostring(response.Body or response.body or "")
+        ))
         return nil
     end
 
@@ -1632,6 +1640,8 @@ local TimeBetweenPressingFandParrying = nil
 local InputRegisteredTime = nil
 local ParryRegisteredTime = nil
 local InputLatency = 0 -- (Parry - Input)
+local RecentParryAttempt = nil
+local RECENT_PARRY_ATTEMPT_TTL = 1.5
 
 
 local ParryState = {
@@ -1745,36 +1755,55 @@ function Dodge()
 end
 
 function BlockStart(StartTime, HoldFor)
-    if not StartTime then  
+    if not StartTime then
         warn("Lacking a start time")
         return
     end
 
-    if ParryRegisteredTime then  
-       local TimeBetweenLastParry = os.clock() - ParryRegisteredTime
-         if TimeBetweenLastParry < 0.8 then  
-             print("parry is gonna be on cooldown")
-         --    return
-         end 
+    if ParryRegisteredTime then
+        local TimeBetweenLastParry = os.clock() - ParryRegisteredTime
+        if TimeBetweenLastParry < 0.8 then
+            print("parry is gonna be on cooldown")
+        end
     end
 
-    if CurrentParryState ~= ParryState.IDLE then  
+    if CurrentParryState ~= ParryState.IDLE
+        and CurrentParryState ~= ParryState.INPUT_PENDING
+        and CurrentParryState ~= ParryState.PARRYING then
         warn("tried to press in a non idle state bypass")
         TransitionToState(ParryState.IDLE)
-    --    return
     end
 
-
     local HoldFor = HoldFor or BlockHoldTime
-    ReleaseDeadline = StartTime + HoldFor   
-
-    --print(now, duration, "attempted block", holdTime and holdTime - now)
-
+    ReleaseDeadline = StartTime + HoldFor
     KeyHeld = true
-  --  keyrelease(ParryKey) 
-    
+
     if AutoParryToggle.Get() == true then
-        keypress(ParryKey)    
+        -- Synthetic Matcha keypresses do not reliably trigger UIS.InputBegan.
+        -- Register the real auto-parry press directly for the learning state machine.
+        local pressNow = os.clock()
+
+        if CurrentParryState == ParryState.IDLE then
+            InputRegisteredTime = pressNow
+            TransitionToState(ParryState.INPUT_PENDING)
+        elseif not InputRegisteredTime then
+            InputRegisteredTime = pressNow
+        end
+
+        if LastPendingRegData then
+            RecentParryAttempt = {
+                AnimationId = LastPendingRegData.AnimationId,
+                StartTime = LastPendingRegData.StartTime,
+                BlockStart = LastPendingRegData.BlockStart,
+                BlockExpire = LastPendingRegData.BlockExpire,
+                PingAtPlan = LastPendingRegData.PingAtPlan,
+                TimingSource = LastPendingRegData.TimingSource,
+                PressTime = pressNow,
+                CreatedAt = pressNow,
+            }
+        end
+
+        keypress(ParryKey)
     end
 end
 
@@ -1914,52 +1943,91 @@ end
 
 
 local function OnSuccessfulParry()
-    if CurrentParryState == ParryState.PARRYING then  
+    -- The local ParriedAnimation event is the confirmed-success signal.
+    -- Use the live registration if available, otherwise the most recent
+    -- auto-parry attempt so cleanup/state races do not lose valid samples.
+    local regData = LastPendingRegData
 
-        local AnimId = LastPendingRegData.AnimationId
-        local AttackConfig = GameConfig[AnimId]
-        local ParryPressTime = tonumber(InputRegisteredTime - LastPendingRegData.StartTime)
-        local EstimatedParryWindow = os.clock() - LastPendingRegData.StartTime
-        
-        -- SANITY CHECK happens when we evaludte outside of parrying
-        if ParryPressTime > 1 or ParryPressTime < 0 then
-        --    print("HERE", ParryPressTime, os.clock() - InputRegisteredTime, os.clock() - LastPendingRegData.StartTime)
-        --    warn("AAAAAAA")
-            return
+    if not regData and RecentParryAttempt then
+        local age = os.clock() - (RecentParryAttempt.CreatedAt or 0)
+        if age <= RECENT_PARRY_ATTEMPT_TTL then
+            regData = RecentParryAttempt
+        else
+            RecentParryAttempt = nil
         end
-        
-        -- NOTIFY UI
-        Notify(
-            "Parry Success", 
-            string.format("%.3fs PT: %.3fs - %s %s", 
-                ParryPressTime, 
-                EstimatedParryWindow,
-                AttackConfig.Style, 
-                AttackConfig.DisplayName
-            )
-        )
-        
-        LastPendingRegData.LearnedParryTime = ParryPressTime
-        LastPendingRegData.Success = true
-
-        -- The game's local parried animation is our success oracle. Record the
-        -- exact press time relative to this attack's animation start in the
-        -- CURRENT ping bucket.
-        local successPing = tonumber(GetPingValue()) or LastPendingRegData.PingAtPlan or 0
-        SubmitSuccessfulParry(AttackConfig, AnimId, ParryPressTime, successPing)
-
-        --LastPendingRegData.Processed = true
-
-        -- CLEANUP
-        --InputRegisteredTime = nil
-        
-        ResetParryState()
-        TransitionToState(ParryState.SUCCESS)
-        TransitionToState(ParryState.IDLE)
-    else
-        warn("Tried to evaluate outside of parrying")
-        print(CurrentParryState)
     end
+
+    if not regData then
+        warn("[Learning] Confirmed parry detected but no recent attack registration exists.")
+        return
+    end
+
+    local AnimId = regData.AnimationId
+    local AttackConfig = AnimId and GameConfig[AnimId]
+
+    if not AttackConfig then
+        warn("[Learning] Confirmed parry has no attack config for " .. tostring(AnimId))
+        return
+    end
+
+    local pressTime = tonumber(regData.PressTime) or tonumber(InputRegisteredTime)
+    local startTime = tonumber(regData.StartTime)
+
+    if not pressTime or not startTime then
+        warn("[Learning] Confirmed parry is missing timing timestamps.")
+        return
+    end
+
+    local ParryPressTime = pressTime - startTime
+    local EstimatedParryWindow = os.clock() - startTime
+
+    if ParryPressTime > 1 or ParryPressTime < 0 then
+        warn(string.format(
+            "[Learning] Ignoring impossible timing %.3fs for %s",
+            ParryPressTime,
+            tostring(AnimId)
+        ))
+        return
+    end
+
+    Notify(
+        "Parry Success",
+        string.format(
+            "%.3fs PT: %.3fs - %s %s",
+            ParryPressTime,
+            EstimatedParryWindow,
+            tostring(AttackConfig.Style),
+            tostring(AttackConfig.DisplayName)
+        )
+    )
+
+    regData.LearnedParryTime = ParryPressTime
+    regData.Success = true
+
+    local successPing =
+        tonumber(GetPingValue())
+        or tonumber(regData.PingAtPlan)
+        or 0
+
+    print(string.format(
+        "[Learning] Confirmed parry -> upload queued | %s | %s | %.3fs | ping=%.0fms",
+        tostring(AttackConfig.Style),
+        tostring(AttackConfig.DisplayName),
+        ParryPressTime,
+        successPing
+    ))
+
+    SubmitSuccessfulParry(
+        AttackConfig,
+        AnimId,
+        ParryPressTime,
+        successPing
+    )
+
+    RecentParryAttempt = nil
+    ResetParryState()
+    TransitionToState(ParryState.SUCCESS)
+    TransitionToState(ParryState.IDLE)
 end
 
 local function OnWindowExceeded()
