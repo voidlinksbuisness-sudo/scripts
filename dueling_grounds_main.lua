@@ -1,4 +1,4 @@
--- DG_MAIN_BUILD = "2026-08-16-DISCOVERY-NOLEARNING-1"
+-- DG_MAIN_BUILD = "2026-08-16-RMB-DOUBLE-PARRY-1"
 --// WABI SABI UI
 loadstring(game:HttpGet("https://scripts.wabisabi.mom/wabi-sabi-ui-lib.lua"))()
 
@@ -592,7 +592,7 @@ local ConfigTab      = SafeAddTab("Config", "settings")
 
 UIToggles.AutoParry = SafeAddToggle(AutoParryTab, {
     Id = "auto_parry",
-    Title = "Auto Parry",
+    Title = "Auto Parry (RMB)",
     Default = true,
     Callback = function(value)
         AutoParryToggle.Set(value)
@@ -1166,7 +1166,7 @@ end
 -- Configs 
 -- ==========================================
 
-local ParryKey = string.byte("F")
+local ParryInput = "RMB"
 local DodgeKey = string.byte("Q")
 
 local KeyHeld = false
@@ -1488,47 +1488,84 @@ function Dodge()
     --  mouse2click()    
 end
 
-function BlockStart(StartTime, HoldFor)
-    if not StartTime then  
+function DG_RMBDown()
+    if type(mouse2press) == "function" then
+        mouse2press()
+        return true
+    end
+
+    return false
+end
+
+function DG_RMBUp()
+    if type(mouse2release) == "function" then
+        mouse2release()
+        return true
+    end
+
+    return false
+end
+
+function DG_RMBClick()
+    if type(mouse2click) == "function" then
+        mouse2click()
+        return true
+    end
+
+    if DG_RMBDown() then
+        task.wait(0.04)
+        DG_RMBUp()
+        return true
+    end
+
+    warn("[DG] Matcha has no mouse2press/mouse2release/mouse2click function.")
+    return false
+end
+
+function BlockStart(StartTime, HoldFor, ParryCount, ParryGap, ParryHold)
+    if not StartTime then
         warn("Lacking a start time")
         return
     end
 
-    if ParryRegisteredTime then  
-       local TimeBetweenLastParry = os.clock() - ParryRegisteredTime
-         if TimeBetweenLastParry < 0.8 then  
-             print("parry is gonna be on cooldown")
-         --    return
-         end 
-    end
-
-    if CurrentParryState ~= ParryState.IDLE then  
-        warn("tried to press in a non idle state bypass")
-        TransitionToState(ParryState.IDLE)
-    --    return
-    end
-
-
-    local HoldFor = HoldFor or BlockHoldTime
-    ReleaseDeadline = StartTime + HoldFor   
-
-    --print(now, duration, "attempted block", holdTime and holdTime - now)
+    local count = math.max(1, math.floor(tonumber(ParryCount) or 1))
+    local gap = math.max(0, tonumber(ParryGap) or 0.12)
+    local hold = math.max(0.01, tonumber(ParryHold) or tonumber(HoldFor) or BlockHoldTime)
 
     KeyHeld = true
-  --  keyrelease(ParryKey) 
-    
-    if AutoParryToggle.Get() == true then
-        keypress(ParryKey)    
+    ReleaseDeadline = StartTime + hold
+
+    if AutoParryToggle.Get() ~= true then
+        return
     end
+
+    task.spawn(function()
+        for index = 1, count do
+            if type(mouse2press) == "function" and type(mouse2release) == "function" then
+                mouse2press()
+                task.wait(hold)
+                mouse2release()
+            else
+                DG_RMBClick()
+            end
+
+            if index < count then
+                task.wait(gap)
+            end
+        end
+
+        KeyHeld = false
+    end)
 end
 
 function BlockEnd()
     KeyHeld = false
---    ResetParryState()
-    
-    if AutoParryToggle.Get() == true then 
-        keyrelease(ParryKey) 
-    end 
+
+    if AutoParryToggle.Get() == true then
+        if type(mouse2release) == "function" then
+            pcall(mouse2release)
+        end
+    end
 end
 
 
@@ -1538,14 +1575,14 @@ end
 
 
 --                  ==[Input State]==
--- Local F keypress
-local function OnInputF()
+-- Local RMB press
+local function OnInputParry()
 
     if CurrentParryState == ParryState.IDLE then
         InputRegisteredTime = os.clock()
         TransitionToState(ParryState.INPUT_PENDING)
     else
-    --    print("F was pressed while machine wasnt idle")
+    --    print("RMB was pressed while machine wasnt idle")
     end
 end
 
@@ -1731,8 +1768,17 @@ local function ParryTask()
             OnSuccessfulParry()
         end]]
 
-        if not iskeypressed(ParryKey) then  
-            warn("F key was released before parrying animation appeared")
+        local rmbDown = true
+        local mouseStateOk, mouseState = pcall(function()
+            return UIS:IsMouseButtonPressed(Enum.UserInputType.MouseButton2)
+        end)
+
+        if mouseStateOk then
+            rmbDown = mouseState
+        end
+
+        if not rmbDown then
+            warn("RMB was released before parrying animation appeared")
             ResetParryState()
             TransitionToState(ParryState.IDLE)
         end
@@ -1996,18 +2042,33 @@ local function ExecuteParry(regData, attackConfig)
     else 
         if LastPendingRegData ~= regData then
             LastPendingRegData = regData
-            BlockStart(LastPendingRegData.BlockStart)
-            print(string.format("Block triggered by [%s | %s] " , 
-                attackConfig.Style, 
-                attackConfig.DisplayName
-                ))
+            BlockStart(
+                LastPendingRegData.BlockStart,
+                attackConfig.ParryHold or BlockHoldTime,
+                attackConfig.ParryCount or 1,
+                attackConfig.ParryGap or 0.12,
+                attackConfig.ParryHold
+            )
+            print(string.format(
+                "[DG] RMB parry triggered by [%s | %s] | count=%d | gap=%.3f",
+                tostring(attackConfig.Style),
+                tostring(attackConfig.DisplayName),
+                tonumber(attackConfig.ParryCount) or 1,
+                tonumber(attackConfig.ParryGap) or 0.12
+            ))
         elseif LastPendingRegData == regData then
             if regData.DidALoop then  
                 print(string.format("Block retriggered for [%s | %s] because its the same key but it looped", 
                 attackConfig.Style, 
                 attackConfig.DisplayName))
                 regData.DidALoop = false
-                BlockStart(regData.BlockStart)
+                BlockStart(
+                    regData.BlockStart,
+                    attackConfig.ParryHold or BlockHoldTime,
+                    attackConfig.ParryCount or 1,
+                    attackConfig.ParryGap or 0.12,
+                    attackConfig.ParryHold
+                )
             else
             --    print(string.format("Block retriggered for  [%s | %s] since we're still in window", attackConfig.Style, attackConfig.DisplayName))
             end
@@ -3349,10 +3410,10 @@ UIS.InputBegan:Connect(function(input, gameProcessed)
         return
     end
 
-    if input.KeyCode == Enum.KeyCode.F then 
+    if input.UserInputType == Enum.UserInputType.MouseButton2 then 
         local localChar = LocalPlayer.Character
         LocalTracker:Update(localChar) 
-        OnInputF()
+        OnInputParry()
         --[[if AutoParryToggle.Get() == false and LastPendingRegData then  
             InputRegisteredTime = os.clock()
             
