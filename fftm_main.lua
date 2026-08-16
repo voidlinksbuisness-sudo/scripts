@@ -765,15 +765,6 @@ local ParryLearningAPI = (function()
         return value
     end
 
-    local function GetRequestFunction()
-        if type(request) == "function" then return request end
-        if type(http_request) == "function" then return http_request end
-        if type(syn) == "table" and type(syn.request) == "function" then
-            return syn.request
-        end
-        return nil
-    end
-
     local function GetPingBucket(pingMs)
         local size = tonumber(Config.PingBucketSize) or 20
         local ping = math.max(0, tonumber(pingMs) or 0)
@@ -788,49 +779,54 @@ local ParryLearningAPI = (function()
     end
 
     local function Http(method, path, body)
-        if not Config.Enabled then return nil end
-
-        local requestFn = GetRequestFunction()
-        if not requestFn then
-            warn("[Learning HTTP] No supported request function.")
+        if not Config.Enabled then
             return nil
         end
 
+        local url = tostring(Config.ApiBase) .. tostring(path or "")
         local headers = {
             ["Accept"] = "application/json",
             ["Authorization"] = "Bearer " .. tostring(Config.ApiToken or ""),
         }
-        if body ~= nil then
-            headers["Content-Type"] = "application/json"
-        end
 
-        local ok, response = pcall(function()
-            return requestFn({
-                Url = tostring(Config.ApiBase) .. path,
-                Method = method,
-                Headers = headers,
-                Body = body and HttpService:JSONEncode(body) or nil,
-                Timeout = Config.RequestTimeout,
-            })
+        local ok, responseBody = pcall(function()
+            if method == "GET" then
+                -- Matcha exposes DataModel:HttpGet directly.
+                return game:HttpGet(url, headers)
+            elseif method == "POST" then
+                headers["Content-Type"] = "application/json"
+
+                local encodedBody = body and HttpService:JSONEncode(body) or "{}"
+
+                -- Matcha signature:
+                -- game:HttpPost(url, data, contentType?, headers?)
+                return game:HttpPost(
+                    url,
+                    encodedBody,
+                    "application/json",
+                    headers
+                )
+            else
+                error("Unsupported learning HTTP method: " .. tostring(method))
+            end
         end)
 
-        if not ok or type(response) ~= "table" then
-            warn("[Learning HTTP] Request failed: " .. tostring(response))
-            return nil
-        end
-
-        local status = tonumber(response.StatusCode or response.Status or 0) or 0
-        if status < 200 or status >= 300 then
+        if not ok then
             warn(string.format(
-                "[Learning HTTP] %s %s returned HTTP %d | %s",
-                tostring(method), tostring(path), status,
-                tostring(response.Body or response.body or "")
+                "[Learning HTTP] %s %s failed: %s",
+                tostring(method),
+                tostring(path),
+                tostring(responseBody)
             ))
             return nil
         end
 
-        local responseBody = response.Body or response.body
         if type(responseBody) ~= "string" or responseBody == "" then
+            warn(string.format(
+                "[Learning HTTP] %s %s returned an empty response.",
+                tostring(method),
+                tostring(path)
+            ))
             return {}
         end
 
@@ -842,7 +838,12 @@ local ParryLearningAPI = (function()
             return decoded
         end
 
-        warn("[Learning HTTP] Could not decode JSON response.")
+        warn(string.format(
+            "[Learning HTTP] Could not decode response from %s %s | %s",
+            tostring(method),
+            tostring(path),
+            tostring(responseBody)
+        ))
         return nil
     end
 
