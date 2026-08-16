@@ -1,4 +1,4 @@
--- FFTM_MAIN_BUILD = "2026-08-14-X-CONTEXTACTION-FIX-9"
+-- FFTM_MAIN_BUILD = "2026-08-14-X-CONTEXTACTION-FIX-7"
 --// WABI SABI UI
 loadstring(game:HttpGet("https://scripts.wabisabi.mom/wabi-sabi-ui-lib.lua"))()
 
@@ -755,6 +755,16 @@ local ParryLearning = {
 local HttpService = game:GetService("HttpService")
 local LearnedTimingCache = {}
 
+local function UrlEncode(value)
+    value = tostring(value or "")
+    value = value:gsub("\n", "\r\n")
+    value = value:gsub("([^%w%-_%.~])", function(char)
+        return string.format("%%%02X", string.byte(char))
+    end)
+    return value
+end
+
+
 local function GetLearningRequestFunction()
     if type(request) == "function" then
         return request
@@ -859,9 +869,9 @@ local function GetLearnedTiming(attackConfig, animationId, pingMs)
     end
 
     local path =
-        "/v1/timing?style=" .. HttpService:UrlEncode(tostring(style))
-        .. "&animation_id=" .. HttpService:UrlEncode(tostring(animationId))
-        .. "&ping_ms=" .. HttpService:UrlEncode(tostring(math.floor((tonumber(pingMs) or 0) + 0.5)))
+        "/v1/timing?style=" .. UrlEncode(tostring(style))
+        .. "&animation_id=" .. UrlEncode(tostring(animationId))
+        .. "&ping_ms=" .. UrlEncode(tostring(math.floor((tonumber(pingMs) or 0) + 0.5)))
 
     local result = LearningHttp("GET", path, nil)
 
