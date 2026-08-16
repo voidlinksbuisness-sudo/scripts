@@ -1613,6 +1613,8 @@ local InputLatency = 0 -- (Parry - Input)
 
 _G.__FFTM_RecentParryAttempt = nil
 _G.__FFTM_RecentParryAttemptTTL = 1.5
+_G.__FFTM_RecentDodgeAttempt = nil
+_G.__FFTM_DodgeAttemptToken = 0
 
 
 local ParryState = {
@@ -1714,15 +1716,123 @@ local function GetHeightMultiplierForCharacter(TargetCharacter)
 end
 
 
-function Dodge()
-    --keyrelease(DodgeKey)
+function Dodge(regData, attackConfig)
     BlockEnd()
 
-    for i = 1, 12, 1 do  
+    local pressNow = os.clock()
+    local startTime = regData and tonumber(regData.StartTime) or nil
+    local dodgeTiming = startTime and (pressNow - startTime) or nil
+
+    local localChar = LocalPlayer.Character
+    local localHum = localChar and localChar:FindFirstChildOfClass("Humanoid")
+    local healthBefore = localHum and tonumber(localHum.Health) or nil
+
+    _G.__FFTM_DodgeAttemptToken = (_G.__FFTM_DodgeAttemptToken or 0) + 1
+    local myToken = _G.__FFTM_DodgeAttemptToken
+
+    _G.__FFTM_RecentDodgeAttempt = {
+        Token = myToken,
+        AnimationId = regData and regData.AnimationId or nil,
+        StartTime = startTime,
+        PressTime = pressNow,
+        Timing = dodgeTiming,
+        PingAtPlan = regData and regData.PingAtPlan or nil,
+        BlockExpire = regData and regData.BlockExpire or nil,
+        AttackConfig = attackConfig,
+        HealthBefore = healthBefore,
+        CreatedAt = pressNow,
+    }
+
+    for i = 1, 12, 1 do
         keypress(DodgeKey)
-        keyrelease(DodgeKey) 
+        keyrelease(DodgeKey)
     end
-    --  mouse2click()    
+
+    -- Wait through the expected M2 danger window, then confirm that this
+    -- exact dodge attempt avoided damage before logging it as successful.
+    local now = os.clock()
+    local verifyDelay = 0.55
+
+    if regData and tonumber(regData.BlockExpire) then
+        verifyDelay = tonumber(regData.BlockExpire) - now + 0.20
+    end
+
+    verifyDelay = math.max(0.25, math.min(1.25, verifyDelay))
+
+    scheduler.delay(verifyDelay, function()
+        local attempt = _G.__FFTM_RecentDodgeAttempt
+
+        if not attempt or attempt.Token ~= myToken then
+            return
+        end
+
+        _G.__FFTM_RecentDodgeAttempt = nil
+
+        local character = LocalPlayer.Character
+        local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+        local healthAfter = humanoid and tonumber(humanoid.Health) or nil
+
+        -- We only call it successful when we can actually verify that health
+        -- did not drop during the M2 danger window.
+        if attempt.HealthBefore == nil or healthAfter == nil then
+            warn("[Learning] Could not verify M2 dodge success because health was unavailable.")
+            return
+        end
+
+        if healthAfter < (attempt.HealthBefore - 0.01) then
+            print(string.format(
+                "[Learning] M2 dodge failed | %s | %s | health %.1f -> %.1f",
+                tostring(attempt.AttackConfig and attempt.AttackConfig.Style or "Unknown"),
+                tostring(attempt.AttackConfig and attempt.AttackConfig.DisplayName or attempt.AnimationId),
+                attempt.HealthBefore,
+                healthAfter
+            ))
+            return
+        end
+
+        local config = attempt.AttackConfig
+        local animId = attempt.AnimationId
+        local timing = tonumber(attempt.Timing)
+
+        if not config or not animId or not timing or timing < 0 or timing > 1.5 then
+            warn("[Learning] Successful M2 dodge detected, but timing data was invalid.")
+            return
+        end
+
+        local successPing =
+            tonumber(GetPingValue())
+            or tonumber(attempt.PingAtPlan)
+            or 0
+
+        Notify(
+            "Dodge Success",
+            string.format(
+                "%.3fs - %s %s | %.0fms",
+                timing,
+                tostring(config.Style),
+                tostring(config.DisplayName),
+                successPing
+            ),
+            3
+        )
+
+        print(string.format(
+            "[Learning] SUCCESSFUL DODGE -> upload queued | %s | %s | %.3fs | ping=%.0fms",
+            tostring(config.Style),
+            tostring(config.DisplayName),
+            timing,
+            successPing
+        ))
+
+        -- Reuse the existing successful-timing endpoint. M2 is distinguished
+        -- by its animation ID/style/display name, so it learns independently.
+        ParryLearningAPI.SubmitSuccessfulParry(
+            config,
+            animId,
+            timing,
+            successPing
+        )
+    end)
 end
 
 function BlockStart(StartTime, HoldFor)
@@ -2305,8 +2415,8 @@ local function ExecuteParry(regData, attackConfig)
         end)
         DodgeLockoutEnd = os.clock() + 0.2
     elseif isHeavy and AutoDodgeToggle.Get() then
-        if AutoParryToggle.Get() then  
-            Dodge()            
+        if AutoParryToggle.Get() then
+            Dodge(regData, attackConfig)
         end
     --    DodgeLockoutEnd = os.clock() + 0.2
     else 
