@@ -234,7 +234,7 @@ local GameConfig = {
         }
     },
     ["StrikerAnims"] = {
-        ["rbxassetid://130748810826267"] = {
+        ["rbxassetid://116642061934550"] = { --130748810826267
             DisplayName = "1stM1",
             ReactionTime = 0.2,
         },
