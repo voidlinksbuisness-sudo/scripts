@@ -239,11 +239,11 @@ local GameConfig = {
             ReactionTime = 0.15,
         },
         ["rbxassetid://115234849770695"] = {
-            DisplayName = "2ndM1"
+            DisplayName = "2ndM1",
             ReactionTime = 0.12,
         },
         ["rbxassetid://85554794950365"] = {
-            DisplayName = "3rdM1"
+            DisplayName = "3rdM1",
             ReactionTime = 0.32,
         },
         ["rbxassetid://73777821288331"] = {
@@ -251,7 +251,7 @@ local GameConfig = {
             ReactionTime = 0.22,
         },
         ["rbxassetid://99309341097380"] = {
-            DisplayName = "M2"
+            DisplayName = "M2",
             ReactionTime = 0.3,
         },
         ["rbxassetid://132840225082238"] = {
