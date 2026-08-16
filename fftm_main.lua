@@ -740,283 +740,282 @@ local BlockHoldTime = 0.27
 -- ==========================================
 -- PARRY LEARNING / DATABASE
 -- ==========================================
--- Point this at the Python server included with this build.
--- Example: "http://192.168.1.50:8787"
-local ParryLearning = {
-    Enabled = true,
-    ApiBase = "https://fftm-parry-api.voidlinksbuisness.workers.dev",
-    ApiToken = "fftm_8fJ2kQ9xLm4Vt7Pz1Nc6Ry3Hs0Wd5Ba",
-    PingBucketSize = 20,
-    MinimumSamples = 3,
-    CacheSeconds = 15,
-    RequestTimeout = 4,
-}
-
-local HttpService = game:GetService("HttpService")
-local LearnedTimingCache = {}
-
-local function UrlEncode(value)
-    value = tostring(value or "")
-    value = value:gsub("\n", "\r\n")
-    value = value:gsub("([^%w%-_%.~])", function(char)
-        return string.format("%%%02X", string.byte(char))
-    end)
-    return value
-end
-
-
-local function GetLearningRequestFunction()
-    if type(request) == "function" then
-        return request
-    end
-
-    if type(http_request) == "function" then
-        return http_request
-    end
-
-    if type(syn) == "table" and type(syn.request) == "function" then
-        return syn.request
-    end
-
-    return nil
-end
-
-local function GetPingBucket(pingMs)
-    local size = tonumber(ParryLearning.PingBucketSize) or 20
-    local ping = math.max(0, tonumber(pingMs) or 0)
-    local lower = math.floor(ping / size) * size
-    return lower, lower + size, tostring(lower) .. "-" .. tostring(lower + size)
-end
-
-local function GetLearningCacheKey(style, animationId, bucketLabel)
-    return tostring(style or "Unknown")
-        .. "|"
-        .. tostring(animationId or "Unknown")
-        .. "|"
-        .. tostring(bucketLabel or "Unknown")
-end
-
-local function LearningHttp(method, path, body)
-    if not ParryLearning.Enabled then
-        return nil
-    end
-
-    local requestFn = GetLearningRequestFunction()
-    if not requestFn then
-        return nil
-    end
-
-    local headers = {
-        ["Accept"] = "application/json",
-        ["Authorization"] = "Bearer " .. tostring(ParryLearning.ApiToken or ""),
+-- Keep the whole subsystem inside ONE top-level local so Matcha does not
+-- burn dozens of local registers in the main chunk.
+local ParryLearningAPI = (function()
+    local Config = {
+        Enabled = true,
+        ApiBase = "https://fftm-parry-api.voidlinksbuisness.workers.dev",
+        ApiToken = "fftm_8fJ2kQ9xLm4Vt7Pz1Nc6Ry3Hs0Wd5Ba",
+        PingBucketSize = 20,
+        MinimumSamples = 3,
+        CacheSeconds = 15,
+        RequestTimeout = 4,
     }
 
-    if body ~= nil then
-        headers["Content-Type"] = "application/json"
+    local HttpService = game:GetService("HttpService")
+    local Cache = {}
+    local LookupInFlight = {}
+
+    local function UrlEncode(value)
+        value = tostring(value or "")
+        value = value:gsub("\n", "\r\n")
+        value = value:gsub("([^%w%-_%.~])", function(char)
+            return string.format("%%%02X", string.byte(char))
+        end)
+        return value
     end
 
-    local ok, response = pcall(function()
-        return requestFn({
-            Url = tostring(ParryLearning.ApiBase) .. path,
-            Method = method,
-            Headers = headers,
-            Body = body and HttpService:JSONEncode(body) or nil,
-            Timeout = ParryLearning.RequestTimeout,
-        })
-    end)
-
-    if not ok or type(response) ~= "table" then
-        warn("[Learning HTTP] Request failed: " .. tostring(response))
-        return nil
-    end
-
-    local status = tonumber(response.StatusCode or response.Status or 0) or 0
-    if status < 200 or status >= 300 then
-        warn(string.format(
-            "[Learning HTTP] %s %s returned HTTP %d | %s",
-            tostring(method),
-            tostring(path),
-            status,
-            tostring(response.Body or response.body or "")
-        ))
-        return nil
-    end
-
-    local responseBody = response.Body or response.body
-    if type(responseBody) ~= "string" or responseBody == "" then
-        return {}
-    end
-
-    local decodeOk, decoded = pcall(function()
-        return HttpService:JSONDecode(responseBody)
-    end)
-
-    if decodeOk and type(decoded) == "table" then
-        return decoded
-    end
-
-    return nil
-end
-
-local LearningLookupInFlight = {}
-
-local function GetLearnedTiming(attackConfig, animationId, pingMs)
-    if not ParryLearning.Enabled or not attackConfig or not animationId then
-        return nil, nil
-    end
-
-    local style = attackConfig.Style or "Unknown"
-    local _, _, bucketLabel = GetPingBucket(pingMs)
-    local cacheKey = GetLearningCacheKey(style, animationId, bucketLabel)
-    local cached = LearnedTimingCache[cacheKey]
-    local now = os.clock()
-
-    -- IMPORTANT: never perform an HTTP request on the auto-parry hot path.
-    -- If we already have a fresh cache entry, use it immediately.
-    if cached and (now - cached.FetchedAt) < ParryLearning.CacheSeconds then
-        if cached.Found then
-            return cached.Timing, cached
+    local function GetRequestFunction()
+        if type(request) == "function" then
+            return request
         end
-        return nil, cached
+
+        if type(http_request) == "function" then
+            return http_request
+        end
+
+        if type(syn) == "table" and type(syn.request) == "function" then
+            return syn.request
+        end
+
+        return nil
     end
 
-    -- No fresh cache entry: launch ONE background lookup and immediately
-    -- fall back to the normal configured timing for this attack.
-    if not LearningLookupInFlight[cacheKey] then
-        LearningLookupInFlight[cacheKey] = true
+    local function GetPingBucket(pingMs)
+        local size = tonumber(Config.PingBucketSize) or 20
+        local ping = math.max(0, tonumber(pingMs) or 0)
+        local lower = math.floor(ping / size) * size
+        return lower, lower + size, tostring(lower) .. "-" .. tostring(lower + size)
+    end
 
-        task.spawn(function()
-            local ok, err = pcall(function()
-                local path =
-                    "/v1/timing?style=" .. UrlEncode(tostring(style))
-                    .. "&animation_id=" .. UrlEncode(tostring(animationId))
-                    .. "&ping_ms=" .. UrlEncode(tostring(math.floor((tonumber(pingMs) or 0) + 0.5)))
+    local function CacheKey(style, animationId, bucketLabel)
+        return tostring(style or "Unknown")
+            .. "|"
+            .. tostring(animationId or "Unknown")
+            .. "|"
+            .. tostring(bucketLabel or "Unknown")
+    end
 
-                local result = LearningHttp("GET", path, nil)
-                local fetchedAt = os.clock()
+    local function Http(method, path, body)
+        if not Config.Enabled then
+            return nil
+        end
 
-                if result and result.found == true
-                    and tonumber(result.timing_seconds)
-                    and (tonumber(result.sample_count) or 0) >= ParryLearning.MinimumSamples then
+        local requestFn = GetRequestFunction()
+        if not requestFn then
+            warn("[Learning HTTP] No supported request() function is available.")
+            return nil
+        end
 
-                    LearnedTimingCache[cacheKey] = {
-                        Found = true,
-                        Timing = tonumber(result.timing_seconds),
-                        Count = tonumber(result.sample_count) or 0,
-                        PingRange = result.ping_range or bucketLabel,
-                        FetchedAt = fetchedAt,
-                    }
+        local headers = {
+            ["Accept"] = "application/json",
+            ["Authorization"] = "Bearer " .. tostring(Config.ApiToken or ""),
+        }
 
-                    print(string.format(
-                        "[Learning] Cached %s | %s | %s | %.3fs | samples=%d",
-                        tostring(style),
-                        tostring(animationId),
-                        tostring(result.ping_range or bucketLabel),
-                        tonumber(result.timing_seconds),
-                        tonumber(result.sample_count) or 0
-                    ))
-                else
-                    LearnedTimingCache[cacheKey] = {
+        if body ~= nil then
+            headers["Content-Type"] = "application/json"
+        end
+
+        local ok, response = pcall(function()
+            return requestFn({
+                Url = tostring(Config.ApiBase) .. path,
+                Method = method,
+                Headers = headers,
+                Body = body and HttpService:JSONEncode(body) or nil,
+                Timeout = Config.RequestTimeout,
+            })
+        end)
+
+        if not ok or type(response) ~= "table" then
+            warn("[Learning HTTP] Request failed: " .. tostring(response))
+            return nil
+        end
+
+        local status = tonumber(response.StatusCode or response.Status or 0) or 0
+        if status < 200 or status >= 300 then
+            warn(string.format(
+                "[Learning HTTP] %s %s returned HTTP %d | %s",
+                tostring(method),
+                tostring(path),
+                status,
+                tostring(response.Body or response.body or "")
+            ))
+            return nil
+        end
+
+        local responseBody = response.Body or response.body
+        if type(responseBody) ~= "string" or responseBody == "" then
+            return {}
+        end
+
+        local decodeOk, decoded = pcall(function()
+            return HttpService:JSONDecode(responseBody)
+        end)
+
+        if decodeOk and type(decoded) == "table" then
+            return decoded
+        end
+
+        warn("[Learning HTTP] Could not decode response JSON.")
+        return nil
+    end
+
+    local API = {}
+
+    function API.GetLearnedTiming(attackConfig, animationId, pingMs)
+        if not Config.Enabled or not attackConfig or not animationId then
+            return nil, nil
+        end
+
+        local style = attackConfig.Style or "Unknown"
+        local _, _, bucketLabel = GetPingBucket(pingMs)
+        local key = CacheKey(style, animationId, bucketLabel)
+        local cached = Cache[key]
+        local now = os.clock()
+
+        if cached and (now - cached.FetchedAt) < Config.CacheSeconds then
+            if cached.Found then
+                return cached.Timing, cached
+            end
+            return nil, cached
+        end
+
+        if not LookupInFlight[key] then
+            LookupInFlight[key] = true
+
+            task.spawn(function()
+                local ok, err = pcall(function()
+                    local path =
+                        "/v1/timing?style=" .. UrlEncode(style)
+                        .. "&animation_id=" .. UrlEncode(animationId)
+                        .. "&ping_ms=" .. UrlEncode(math.floor((tonumber(pingMs) or 0) + 0.5))
+
+                    local result = Http("GET", path, nil)
+                    local fetchedAt = os.clock()
+
+                    if result
+                        and result.found == true
+                        and tonumber(result.timing_seconds)
+                        and (tonumber(result.sample_count) or 0) >= Config.MinimumSamples then
+
+                        Cache[key] = {
+                            Found = true,
+                            Timing = tonumber(result.timing_seconds),
+                            Count = tonumber(result.sample_count) or 0,
+                            PingRange = result.ping_range or bucketLabel,
+                            FetchedAt = fetchedAt,
+                        }
+
+                        print(string.format(
+                            "[Learning] Cached %s | %s | %s | %.3fs | samples=%d",
+                            tostring(style),
+                            tostring(animationId),
+                            tostring(result.ping_range or bucketLabel),
+                            tonumber(result.timing_seconds),
+                            tonumber(result.sample_count) or 0
+                        ))
+                    else
+                        Cache[key] = {
+                            Found = false,
+                            Count = result and tonumber(result.sample_count) or 0,
+                            PingRange = (result and result.ping_range) or bucketLabel,
+                            FetchedAt = fetchedAt,
+                        }
+                    end
+                end)
+
+                LookupInFlight[key] = nil
+
+                if not ok then
+                    warn("[Learning] Background lookup failed; using fallback timing: " .. tostring(err))
+                    Cache[key] = {
                         Found = false,
-                        Count = result and tonumber(result.sample_count) or 0,
-                        PingRange = (result and result.ping_range) or bucketLabel,
-                        FetchedAt = fetchedAt,
+                        Count = 0,
+                        PingRange = bucketLabel,
+                        FetchedAt = os.clock(),
                     }
                 end
             end)
+        end
 
-            LearningLookupInFlight[cacheKey] = nil
-
-            if not ok then
-                -- Learning must NEVER break auto parry.
-                warn("[Learning] Background lookup failed; using fallback timing: " .. tostring(err))
-
-                LearnedTimingCache[cacheKey] = {
-                    Found = false,
-                    Count = 0,
-                    PingRange = bucketLabel,
-                    FetchedAt = os.clock(),
-                }
-            end
-        end)
+        return nil, {
+            Found = false,
+            Count = cached and cached.Count or 0,
+            PingRange = bucketLabel,
+            FetchedAt = now,
+            Pending = true,
+        }
     end
 
-    return nil, {
-        Found = false,
-        Count = cached and cached.Count or 0,
-        PingRange = bucketLabel,
-        FetchedAt = now,
-        Pending = true,
-    }
-end
-
-local function SubmitSuccessfulParry(attackConfig, animationId, timingSeconds, pingMs)
-    if not ParryLearning.Enabled
-        or not attackConfig
-        or not animationId
-        or type(timingSeconds) ~= "number" then
-        return
-    end
-
-    local lower, upper, bucketLabel = GetPingBucket(pingMs)
-    local style = attackConfig.Style or "Unknown"
-
-    task.spawn(function()
-        local result = LearningHttp("POST", "/v1/success", {
-            game = GameName,
-            style = style,
-            animation_id = tostring(animationId),
-            display_name = tostring(attackConfig.DisplayName or ""),
-            ping_ms = tonumber(pingMs) or 0,
-            ping_bucket_min = lower,
-            ping_bucket_max = upper,
-            timing_seconds = timingSeconds,
-        })
-
-        if not result then
-            warn(string.format(
-                "[Learning] Could not upload success for %s | %s | %s",
-                tostring(style),
-                tostring(attackConfig.DisplayName or animationId),
-                bucketLabel
-            ))
+    function API.SubmitSuccessfulParry(attackConfig, animationId, timingSeconds, pingMs)
+        if not Config.Enabled
+            or not attackConfig
+            or not animationId
+            or type(timingSeconds) ~= "number" then
             return
         end
 
-        local cacheKey = GetLearningCacheKey(style, animationId, bucketLabel)
-        local count = tonumber(result.sample_count) or 0
-        local learned = tonumber(result.timing_seconds)
+        local lower, upper, bucketLabel = GetPingBucket(pingMs)
+        local style = attackConfig.Style or "Unknown"
 
-        if learned and count >= ParryLearning.MinimumSamples then
-            LearnedTimingCache[cacheKey] = {
-                Found = true,
-                Timing = learned,
-                Count = count,
-                PingRange = result.ping_range or bucketLabel,
-                FetchedAt = os.clock(),
-            }
-        else
-            -- Force another lookup soon as the bucket approaches the minimum.
-            LearnedTimingCache[cacheKey] = {
-                Found = false,
-                Count = count,
-                PingRange = result.ping_range or bucketLabel,
-                FetchedAt = os.clock(),
-            }
-        end
+        task.spawn(function()
+            local result = Http("POST", "/v1/success", {
+                game = GameName,
+                style = style,
+                animation_id = tostring(animationId),
+                display_name = tostring(attackConfig.DisplayName or ""),
+                ping_ms = tonumber(pingMs) or 0,
+                ping_bucket_min = lower,
+                ping_bucket_max = upper,
+                timing_seconds = timingSeconds,
+            })
 
-        print(string.format(
-            "[Learning] SUCCESS logged | %s | %s | ping %s ms | %.3fs | samples=%d%s",
-            tostring(style),
-            tostring(attackConfig.DisplayName or animationId),
-            tostring(result.ping_range or bucketLabel),
-            timingSeconds,
-            count,
-            learned and (" | learned=" .. string.format("%.3fs", learned)) or ""
-        ))
-    end)
-end
+            if not result then
+                warn(string.format(
+                    "[Learning] Could not upload success for %s | %s | %s",
+                    tostring(style),
+                    tostring(attackConfig.DisplayName or animationId),
+                    bucketLabel
+                ))
+                return
+            end
 
+            local key = CacheKey(style, animationId, bucketLabel)
+            local count = tonumber(result.sample_count) or 0
+            local learned = tonumber(result.timing_seconds)
+
+            if learned and count >= Config.MinimumSamples then
+                Cache[key] = {
+                    Found = true,
+                    Timing = learned,
+                    Count = count,
+                    PingRange = result.ping_range or bucketLabel,
+                    FetchedAt = os.clock(),
+                }
+            else
+                Cache[key] = {
+                    Found = false,
+                    Count = count,
+                    PingRange = result.ping_range or bucketLabel,
+                    FetchedAt = os.clock(),
+                }
+            end
+
+            print(string.format(
+                "[Learning] SUCCESS logged | %s | %s | ping %s ms | %.3fs | samples=%d%s",
+                tostring(style),
+                tostring(attackConfig.DisplayName or animationId),
+                tostring(result.ping_range or bucketLabel),
+                timingSeconds,
+                count,
+                learned and (" | learned=" .. string.format("%.3fs", learned)) or ""
+            ))
+        end)
+    end
+
+    return API
+end)()
 
 -- ==========================================
 local FlattenedConfig = {}
@@ -2017,7 +2016,7 @@ local function OnSuccessfulParry()
         successPing
     ))
 
-    SubmitSuccessfulParry(
+    ParryLearningAPI.SubmitSuccessfulParry(
         AttackConfig,
         AnimId,
         ParryPressTime,
@@ -2211,7 +2210,7 @@ local function CalculateParryTiming(attackConfig, StartTime, Target, animationId
     local learnedInfo = nil
 
     local learningOk, learnedA, learnedB = pcall(
-        GetLearnedTiming,
+        ParryLearningAPI.GetLearnedTiming,
         attackConfig,
         animationId,
         pingMs
