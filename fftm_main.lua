@@ -1654,6 +1654,8 @@ _G.__FFTM_RecentParryAttempt = nil
 _G.__FFTM_RecentParryAttemptTTL = 1.5
 _G.__FFTM_RecentDodgeAttempt = nil
 _G.__FFTM_DodgeAttemptToken = 0
+_G.__FFTM_SelfTrainingAttack = nil
+_G.__FFTM_SelfTrainingTTL = 2.0
 
 
 local ParryState = {
@@ -1943,9 +1945,33 @@ end
 --                  ==[Input State]==
 -- Local F keypress
 local function OnInputF()
+    local pressNow = os.clock()
+
+    -- SELF TRAINING:
+    -- If our own character is currently playing a configured attack animation,
+    -- attach this F press to that attack. A later confirmed ParriedAnimation
+    -- will turn it into a database sample.
+    local selfAttack = _G.__FFTM_SelfTrainingAttack
+    if selfAttack then
+        local age = pressNow - (selfAttack.CreatedAt or 0)
+
+        if age <= (_G.__FFTM_SelfTrainingTTL or 2.0) then
+            selfAttack.PressTime = pressNow
+            selfAttack.PingAtPress = tonumber(GetPingValue()) or 0
+
+            print(string.format(
+                "[Self Training] F registered | %s | %s | %.3fs",
+                tostring(selfAttack.Style or "Unknown"),
+                tostring(selfAttack.DisplayName or selfAttack.AnimationId),
+                pressNow - (selfAttack.StartTime or pressNow)
+            ))
+        else
+            _G.__FFTM_SelfTrainingAttack = nil
+        end
+    end
 
     if CurrentParryState == ParryState.IDLE then
-        InputRegisteredTime = os.clock()
+        InputRegisteredTime = pressNow
         TransitionToState(ParryState.INPUT_PENDING)
     else
     --    print("F was pressed while machine wasnt idle")
@@ -2062,13 +2088,42 @@ end
 
 local function OnSuccessfulParry()
     local regData = LastPendingRegData
+    local sourceLabel = "target"
 
+    -- Normal auto-parry race fallback.
     if not regData and _G.__FFTM_RecentParryAttempt then
         local age = os.clock() - (_G.__FFTM_RecentParryAttempt.CreatedAt or 0)
+
         if age <= (_G.__FFTM_RecentParryAttemptTTL or 1.5) then
             regData = _G.__FFTM_RecentParryAttempt
+            sourceLabel = "recent-target"
         else
             _G.__FFTM_RecentParryAttempt = nil
+        end
+    end
+
+    -- SELF TRAINING FALLBACK:
+    -- A successful local parry animation can validate our manually timed F
+    -- against our own configured attack animation.
+    if not regData and _G.__FFTM_SelfTrainingAttack then
+        local selfAttack = _G.__FFTM_SelfTrainingAttack
+        local age = os.clock() - (selfAttack.CreatedAt or 0)
+
+        if age <= (_G.__FFTM_SelfTrainingTTL or 2.0)
+            and tonumber(selfAttack.PressTime)
+            and tonumber(selfAttack.StartTime) then
+
+            regData = {
+                AnimationId = selfAttack.AnimationId,
+                StartTime = selfAttack.StartTime,
+                PressTime = selfAttack.PressTime,
+                PingAtPlan = selfAttack.PingAtPress,
+                SelfTraining = true,
+            }
+
+            sourceLabel = "self-training"
+        elseif age > (_G.__FFTM_SelfTrainingTTL or 2.0) then
+            _G.__FFTM_SelfTrainingAttack = nil
         end
     end
 
@@ -2079,6 +2134,7 @@ local function OnSuccessfulParry()
 
     local AnimId = regData.AnimationId
     local AttackConfig = AnimId and GameConfig[AnimId]
+
     if not AttackConfig then
         warn("[Learning] Confirmed parry has no config for " .. tostring(AnimId))
         return
@@ -2101,7 +2157,7 @@ local function OnSuccessfulParry()
     end
 
     Notify(
-        "Parry Success",
+        regData.SelfTraining and "Self Parry Logged" or "Parry Success",
         string.format(
             "%.3fs PT: %.3fs - %s %s",
             ParryPressTime,
@@ -2120,11 +2176,12 @@ local function OnSuccessfulParry()
         or 0
 
     print(string.format(
-        "[Learning] Confirmed parry -> upload queued | %s | %s | %.3fs | ping=%.0fms",
+        "[Learning] Confirmed parry -> upload queued | %s | %s | %.3fs | ping=%.0fms | source=%s",
         tostring(AttackConfig.Style),
         tostring(AttackConfig.DisplayName),
         ParryPressTime,
-        successPing
+        successPing,
+        sourceLabel
     ))
 
     ParryLearningAPI.SubmitSuccessfulParry(
@@ -2134,7 +2191,12 @@ local function OnSuccessfulParry()
         successPing
     )
 
+    if regData.SelfTraining then
+        _G.__FFTM_SelfTrainingAttack = nil
+    end
+
     _G.__FFTM_RecentParryAttempt = nil
+
     ResetParryState()
     TransitionToState(ParryState.SUCCESS)
     TransitionToState(ParryState.IDLE)
@@ -2241,7 +2303,29 @@ local function onLocalAnimationAdded(anim)
      --  print("stunned")
     end
 
-    if GameConfig[animId] then  
+    if GameConfig[animId] then
+        local attackConfig = GameConfig[animId]
+        local timePosition = tonumber(anim.TimePosition) or 0
+        local now = os.clock()
+
+        _G.__FFTM_SelfTrainingAttack = {
+            AnimationId = animId,
+            StartTime = now - timePosition,
+            CreatedAt = now,
+            Style = attackConfig.Style,
+            DisplayName = attackConfig.DisplayName,
+            PressTime = nil,
+            PingAtPress = nil,
+        }
+
+        print(string.format(
+            "[Self Training] Attack detected | %s | %s | %s | start=%.3f",
+            tostring(attackConfig.Style or "Unknown"),
+            tostring(attackConfig.DisplayName or "Unknown"),
+            tostring(animId),
+            timePosition
+        ))
+
         print("player is m1ing")
         OnStunned()
     end
