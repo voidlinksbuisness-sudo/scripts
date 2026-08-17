@@ -1,14 +1,15 @@
--- FFTM Matcha loader - presets + keybinds, explicit dependency injection
+-- FFTM Matcha loader - split compile + cache bust + clean output
 
 local URLS = {
-    AnimationTracker = "https://raw.githubusercontent.com/voidlinksbuisness-sudo/scripts/refs/heads/main/animationtracker(1).lua",
-    ESPUtility = "https://raw.githubusercontent.com/voidlinksbuisness-sudo/scripts/refs/heads/main/esp_utility(1).lua",
-    GameConfig = "https://raw.githubusercontent.com/voidlinksbuisness-sudo/scripts/refs/heads/main/game_config.lua",
-    Main = "https://raw.githubusercontent.com/voidlinksbuisness-sudo/scripts/refs/heads/main/fftm_main.lua",
+    AnimationTracker = "https://raw.githubusercontent.com/voidlinksbuisness-sudo/scripts/main/animationtracker(1).lua",
+    ESPUtility = "https://raw.githubusercontent.com/voidlinksbuisness-sudo/scripts/main/esp_utility(1).lua",
+    GameConfig = "https://raw.githubusercontent.com/voidlinksbuisness-sudo/scripts/main/game_config.lua",
+    Main = "https://raw.githubusercontent.com/voidlinksbuisness-sudo/scripts/main/fftm_main.lua",
 }
 
 local function FetchSource(name, url)
     local separator = string.find(url, "?", 1, true) and "&" or "?"
+
     local requestUrl =
         url
         .. separator
@@ -44,47 +45,40 @@ end
 local animationSource =
     FetchSource("AnimationTracker", URLS.AnimationTracker)
 
-if animationSource == nil then
+if not animationSource then
     return
 end
 
 local espSource =
     FetchSource("ESP Utility", URLS.ESPUtility)
 
-if espSource == nil then
+if not espSource then
     return
 end
 
 local gameConfigSource =
     FetchSource("Game Config", URLS.GameConfig)
 
-if gameConfigSource == nil then
+if not gameConfigSource then
     return
 end
 
 local mainSource =
     FetchSource("Main", URLS.Main)
 
-if mainSource == nil then
+if not mainSource then
     return
 end
 
+
 --==================================================
--- MATCHA SPLIT-COMPILE LOADER
+-- DEPENDENCIES
 --==================================================
--- The previous loader pasted fftm_main.lua inside one giant function:
---
---   local function __FFTM_RUN_MAIN(...)
---       <entire main script>
---   end
---
--- On some Matcha builds that causes Luau's 200-local-register allocator to
--- fail while compiling MainLoop. Instead, build the dependency tables first,
--- export them to Matcha's shared environment, then compile Main separately.
 
 local dependencySource =
     "local print = function(...) end\n"
     .. "local warn = function(...) end\n"
+
     .. "local __AnimationTrackerClass = (function()\n"
     .. animationSource
     .. "\nend)()\n\n"
@@ -109,50 +103,81 @@ end
 __env.AnimationTrackerClass = __AnimationTrackerClass
 __env.ESP_Utility = __ESP_Utility
 __env.GameConfig = __GameConfig
-
 ]]
 
 
-local dependencyChunk, dependencyCompileError = loadstring(dependencySource)
+local dependencyChunk, dependencyCompileError =
+    loadstring(dependencySource)
 
 if not dependencyChunk then
-    warn("[FFTM Loader] Dependency compile failed: " .. tostring(dependencyCompileError))
+    warn(
+        "[FFTM Loader] Dependency compile failed: "
+        .. tostring(dependencyCompileError)
+    )
     return
 end
 
-local dependencyOk, dependencyRunError = pcall(dependencyChunk)
+
+local dependencyOk, dependencyRunError =
+    pcall(dependencyChunk)
 
 if not dependencyOk then
-    warn("[FFTM Loader] Dependency runtime failed: " .. tostring(dependencyRunError))
+    warn(
+        "[FFTM Loader] Dependency runtime failed: "
+        .. tostring(dependencyRunError)
+    )
     return
 end
 
--- Diagnostic information lets us verify that both machines are actually
--- downloading the same main file.
+
+--==================================================
+-- MAIN
+--==================================================
+
 local buildTag =
-    mainSource:match('FFTM_MAIN_BUILD%s*=%s*"([^"]+)"')
-    or mainSource:match("FFTM_MAIN_BUILD%s*=%s*'([^']+)'")
+    mainSource:match(
+        'FFTM_MAIN_BUILD%s*=%s*"([^"]+)"'
+    )
+    or mainSource:match(
+        "FFTM_MAIN_BUILD%s*=%s*'([^']+)'"
+    )
     or "unknown"
 
 
+-- Suppress prints/warns from fftm_main.lua itself
 local silentMainSource =
     "local print = function(...) end\n"
     .. "local warn = function(...) end\n"
     .. mainSource
 
-local mainChunk, mainCompileError = loadstring(silentMainSource)
+
+local mainChunk, mainCompileError =
+    loadstring(silentMainSource)
 
 if not mainChunk then
-    warn("[FFTM Loader] Main compile failed: " .. tostring(mainCompileError))
+    warn(
+        "[FFTM Loader] Main compile failed: "
+        .. tostring(mainCompileError)
+    )
     return
 end
 
-local mainOk, mainRunError = pcall(mainChunk)
+
+local mainOk, mainRunError =
+    pcall(mainChunk)
 
 if not mainOk then
-    warn("[FFTM Loader] Main runtime failed: " .. tostring(mainRunError))
+    warn(
+        "[FFTM Loader] Main runtime failed: "
+        .. tostring(mainRunError)
+    )
     return
 end
+
+
+--==================================================
+-- SUCCESS OUTPUT
+--==================================================
 
 print("[FFTM] Version: " .. tostring(buildTag))
 print("[FFTM] Executed successfully.")
