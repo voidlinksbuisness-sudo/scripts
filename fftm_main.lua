@@ -1162,6 +1162,7 @@ end
 
 local ParryKey = string.byte("F")
 local DodgeKey = string.byte("Q")
+local HeavyKey = string.byte("R")
 
 local KeyHeld = false
 local TriggerParry = false
@@ -1483,24 +1484,15 @@ function Dodge()
 end
 
 function Counter()
-    -- Release any active block first so the counter is not swallowed by F.
+    -- Release an active parry first, then press/release R using the same
+    -- keypress/keyrelease input method used by Auto Parry.
     BlockEnd()
 
-    local ok = false
-
-    if type(mouse2click) == "function" then
-        ok = pcall(mouse2click)
-    elseif type(mouse2press) == "function" and type(mouse2release) == "function" then
-        ok = pcall(function()
-            mouse2press()
-            task.wait(0.03)
-            mouse2release()
-        end)
-    end
-
-    if not ok then
-        warn("[Auto Counter] M2 input function is unavailable in this executor.")
-    end
+    task.spawn(function()
+        keypress(HeavyKey)
+        task.wait(BlockHoldTime)
+        keyrelease(HeavyKey)
+    end)
 end
 
 function BlockStart(StartTime, HoldFor)
