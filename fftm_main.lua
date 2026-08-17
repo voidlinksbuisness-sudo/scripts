@@ -1,4 +1,4 @@
--- FFTM_MAIN_BUILD = "2026-08-17-SERVER-ADMIN-1"
+-- FFTM_MAIN_BUILD = "2026-08-17-SERVER-ADMIN-MATCHA-2"
 --// WABI SABI UI
 loadstring(game:HttpGet("https://scripts.wabisabi.mom/wabi-sabi-ui-lib.lua"))()
 
@@ -31,7 +31,7 @@ local Camera = workspace.CurrentCamera
 --==================================================
 -- FFTM REMOTE SESSION CONTROL
 --==================================================
-FFTM_MAIN_VERSION = "2026-08-17-SERVER-ADMIN-1"
+FFTM_MAIN_VERSION = "2026-08-17-SERVER-ADMIN-MATCHA-2"
 FFTM_API_URL = "https://fftm-parry-api.voidlinksbuisness.workers.dev"
 FFTM_RUNNING = true
 FFTM_LAST_HEARTBEAT_AT = 0
@@ -49,9 +49,16 @@ do
     FFTM_SESSION_ID = okGuid and guid
         or (tostring(LocalPlayer.UserId) .. "-" .. tostring(os.time()) .. "-" .. tostring(math.random(100000, 999999)))
 
-    if type(getgenv) == "function" then
-        local env = getgenv()
-        if type(env) == "table" then
+    -- Matcha does not expose getgenv(), so prefer _G.
+    -- Keep getgenv() support for executors that do provide it.
+    if type(_G) == "table" then
+        FFTM_ADMIN_KEY = _G.FFTM_ADMIN_KEY
+    end
+
+    if FFTM_ADMIN_KEY == nil and type(getgenv) == "function" then
+        local okEnv, env = pcall(getgenv)
+
+        if okEnv and type(env) == "table" then
             FFTM_ADMIN_KEY = env.FFTM_ADMIN_KEY
         end
     end
