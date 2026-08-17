@@ -1,5 +1,4 @@
 -- FFTM Matcha loader - presets + keybinds, explicit dependency injection
-print("[FFTM] Loader build: 2026-08-13-MATCHA-EXPLICIT-DEPS-1")
 
 local URLS = {
     AnimationTracker = "https://raw.githubusercontent.com/voidlinksbuisness-sudo/scripts/refs/heads/main/animationtracker(1).lua",
@@ -39,7 +38,6 @@ local function FetchSource(name, url)
         return nil
     end
 
-    print("[FFTM] Downloaded " .. name)
     return source
 end
 
@@ -71,12 +69,23 @@ if mainSource == nil then
     return
 end
 
--- Matcha does not reliably preserve returned module tables between separate
--- loadstring chunks, and it also does not reliably capture outer locals into
--- nested functions. So dependencies are created in ONE chunk and then passed
--- EXPLICITLY as parameters to the main function.
-local compositeSource =
-    "local __AnimationTrackerClass = (function()\n"
+--==================================================
+-- MATCHA SPLIT-COMPILE LOADER
+--==================================================
+-- The previous loader pasted fftm_main.lua inside one giant function:
+--
+--   local function __FFTM_RUN_MAIN(...)
+--       <entire main script>
+--   end
+--
+-- On some Matcha builds that causes Luau's 200-local-register allocator to
+-- fail while compiling MainLoop. Instead, build the dependency tables first,
+-- export them to Matcha's shared environment, then compile Main separately.
+
+local dependencySource =
+    "local print = function(...) end\n"
+    .. "local warn = function(...) end\n"
+    .. "local __AnimationTrackerClass = (function()\n"
     .. animationSource
     .. "\nend)()\n\n"
 
@@ -88,26 +97,62 @@ local compositeSource =
     .. gameConfigSource
     .. "\nend)()\n\n"
 
-    .. "local function __FFTM_RUN_MAIN(AnimationTrackerClass, ESP_Utility, GameConfig)\n"
+    .. [[
+local __env
+
+if type(getgenv) == "function" then
+    __env = getgenv()
+else
+    __env = _G
+end
+
+__env.AnimationTrackerClass = __AnimationTrackerClass
+__env.ESP_Utility = __ESP_Utility
+__env.GameConfig = __GameConfig
+
+]]
+
+
+local dependencyChunk, dependencyCompileError = loadstring(dependencySource)
+
+if not dependencyChunk then
+    warn("[FFTM Loader] Dependency compile failed: " .. tostring(dependencyCompileError))
+    return
+end
+
+local dependencyOk, dependencyRunError = pcall(dependencyChunk)
+
+if not dependencyOk then
+    warn("[FFTM Loader] Dependency runtime failed: " .. tostring(dependencyRunError))
+    return
+end
+
+-- Diagnostic information lets us verify that both machines are actually
+-- downloading the same main file.
+local buildTag =
+    mainSource:match('FFTM_MAIN_BUILD%s*=%s*"([^"]+)"')
+    or mainSource:match("FFTM_MAIN_BUILD%s*=%s*'([^']+)'")
+    or "unknown"
+
+
+local silentMainSource =
+    "local print = function(...) end\n"
+    .. "local warn = function(...) end\n"
     .. mainSource
-    .. "\nend\n\n"
 
-    .. "__FFTM_RUN_MAIN(__AnimationTrackerClass, __ESP_Utility, __GameConfig)\n"
+local mainChunk, mainCompileError = loadstring(silentMainSource)
 
-print("[FFTM] Compiling single-chunk core with explicit dependencies...")
-
-local chunk, compileError = loadstring(compositeSource)
-
-if not chunk then
-    warn("[FFTM Loader] Compile failed: " .. tostring(compileError))
+if not mainChunk then
+    warn("[FFTM Loader] Main compile failed: " .. tostring(mainCompileError))
     return
 end
 
-local ok, runError = pcall(chunk)
+local mainOk, mainRunError = pcall(mainChunk)
 
-if not ok then
-    warn("[FFTM Loader] Runtime failed: " .. tostring(runError))
+if not mainOk then
+    warn("[FFTM Loader] Main runtime failed: " .. tostring(mainRunError))
     return
 end
 
-print("[FFTM] Full build loaded successfully.")
+print("[FFTM] Version: " .. tostring(buildTag))
+print("[FFTM] Executed successfully.")
