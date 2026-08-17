@@ -511,6 +511,7 @@ end
 
 local AutoParryToggle      = NewValueControl(true)
 local AutoDodgeToggle      = NewValueControl(true)
+local AutoCounterToggle    = NewValueControl(false)
 local AutoTargetNearest    = NewValueControl(false)
 local MultiTarget          = NewValueControl(true)
 local HeightToggle         = NewValueControl(true)
@@ -605,6 +606,15 @@ UIToggles.AutoDodge = SafeAddToggle(AutoParryTab, {
     Default = true,
     Callback = function(value)
         AutoDodgeToggle.Set(value)
+    end
+})
+
+UIToggles.AutoCounter = SafeAddToggle(AutoParryTab, {
+    Id = "auto_counter",
+    Title = "Auto Counter",
+    Default = false,
+    Callback = function(value)
+        AutoCounterToggle.Set(value)
     end
 })
 
@@ -1472,6 +1482,27 @@ function Dodge()
     --  mouse2click()    
 end
 
+function Counter()
+    -- Release any active block first so the counter is not swallowed by F.
+    BlockEnd()
+
+    local ok = false
+
+    if type(mouse2click) == "function" then
+        ok = pcall(mouse2click)
+    elseif type(mouse2press) == "function" and type(mouse2release) == "function" then
+        ok = pcall(function()
+            mouse2press()
+            task.wait(0.03)
+            mouse2release()
+        end)
+    end
+
+    if not ok then
+        warn("[Auto Counter] M2 input function is unavailable in this executor.")
+    end
+end
+
 function BlockStart(StartTime, HoldFor)
     if not StartTime then  
         warn("Lacking a start time")
@@ -1962,6 +1993,11 @@ local function ExecuteParry(regData, attackConfig)
             keyrelease(32)                      
         end)
         DodgeLockoutEnd = os.clock() + 0.2
+    elseif isHeavy and AutoCounterToggle.Get() then
+        Counter()
+        print(string.format("Counter triggered by [%s | %s]",
+            tostring(attackConfig.Style),
+            tostring(attackConfig.DisplayName)))
     elseif isHeavy and AutoDodgeToggle.Get() then
         if AutoParryToggle.Get() then  
             Dodge()            
@@ -2008,7 +2044,16 @@ local function EvaluateAnimation(anim, character, localCharacter, localRoot, tar
     if CheckCharacterDistance(localRoot, targetRoot) > AutoParryRange then return end
     
     -- PARRY FUNCTION OVERRIDE
-    if attackConfig.ParryFunction and (now - regData.StartTime) <= (attackConfig.ReactionTime or DefaultReactionTime) + ParryWindow/2 then
+    -- Auto Counter takes priority for M2/heavy attacks, including attacks that
+    -- normally have a custom ParryFunction.
+    local isHeavy =
+        attackConfig.DisplayName == "M2"
+        or attackConfig.DisplayName == "Heavy"
+        or attackConfig.Heavy
+
+    if attackConfig.ParryFunction
+        and not (isHeavy and AutoCounterToggle.Get())
+        and (now - regData.StartTime) <= (attackConfig.ReactionTime or DefaultReactionTime) + ParryWindow/2 then
         if AutoParryToggle.Get() then  
            attackConfig.ParryFunction({
                RegistryData = regData,
