@@ -1301,7 +1301,7 @@ local function AddSelectedMarker(character)
     markerText.Color = Color3.fromRGB(255, 50, 50)
     markerText.Visible = false
     markerText.ZIndex = 30
-
+    markerText.Font = Drawing.Fonts.Fortnite
     TargetSelectionState.Markers[character] = markerText
 end
 
