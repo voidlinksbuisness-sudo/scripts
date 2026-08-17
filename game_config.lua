@@ -167,7 +167,7 @@ local GameConfig = {
     ["HakariAnims"] = {
         ["rbxassetid://102961997518914"] = {
             DisplayName = "MomentumM2",
-            ReactionTime = 0.2,
+            ReactionTime = 0.25,
         },
         ["rbxassetid://92865171012109"] = {
             DisplayName = "1stM1",
