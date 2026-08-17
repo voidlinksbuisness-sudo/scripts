@@ -187,7 +187,7 @@ local GameConfig = {
         },
         ["rbxassetid://103359839046574"] = {
             DisplayName = "M2",
-            ReactionTime = 0.19,
+            ReactionTime = 0.1,
         },
     },
     ["CapoeiraAnims"] = {
