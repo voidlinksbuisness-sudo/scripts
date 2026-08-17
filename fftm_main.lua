@@ -2826,41 +2826,93 @@ SetupKeybindEngine()
 
 local function SetupPresetConfigUI()
     --==================================================
-    -- CONFIG / SAVED PRESETS
+    -- CONFIG / PERSISTENT LOCAL PROFILES
     --==================================================
 
     local HttpService = game:GetService("HttpService")
-    local PRESET_FILE = "fftm_presets.json"
 
-    local Presets = {}
-    local SelectedPresetSlot = "Slot 1"
+    -- Matcha's writefile/readfile APIs write into its persistent workspace.
+    -- Keeping everything under one folder prevents the configs from being
+    -- tied only to the current script session.
+    local CONFIG_FOLDER = "FFTM"
+    local CONFIG_FILE = CONFIG_FOLDER .. "/configs.json"
+    local LEGACY_CONFIG_FILE = "fftm_presets.json"
+
+    local Configs = {}
+    local SelectedConfig = "Config 1"
     local CurrentTheme = "AmethystDark"
 
-    local function CanUsePersistentFiles()
+    local ConfigNames = {
+        "Config 1",
+        "Config 2",
+        "Config 3",
+        "Config 4",
+        "Config 5",
+    }
+
+    local function HasFileAPI()
         return type(writefile) == "function"
             and type(readfile) == "function"
             and type(isfile) == "function"
     end
 
-    local function ReadPresetFile()
-        if not CanUsePersistentFiles() then
-            return
+    local function EnsureConfigFolder()
+        if type(makefolder) ~= "function" then
+            return true
         end
 
+        local exists = false
+
+        if type(isfolder) == "function" then
+            local ok, result = pcall(function()
+                return isfolder(CONFIG_FOLDER)
+            end)
+
+            exists = ok and result == true
+        end
+
+        if exists then
+            return true
+        end
+
+        local ok, err = pcall(function()
+            makefolder(CONFIG_FOLDER)
+        end)
+
+        if not ok then
+            -- Some executors error when the folder already exists.
+            if type(isfolder) == "function" then
+                local verifyOk, verify = pcall(function()
+                    return isfolder(CONFIG_FOLDER)
+                end)
+
+                if verifyOk and verify then
+                    return true
+                end
+            end
+
+            warn("[Config] Could not create config folder: " .. tostring(err))
+            return false
+        end
+
+        return true
+    end
+
+    local function DecodeConfigFile(path)
         local okExists, exists = pcall(function()
-            return isfile(PRESET_FILE)
+            return isfile(path)
         end)
 
         if not okExists or not exists then
-            return
+            return nil
         end
 
         local okRead, raw = pcall(function()
-            return readfile(PRESET_FILE)
+            return readfile(path)
         end)
 
         if not okRead or type(raw) ~= "string" or raw == "" then
-            return
+            return nil
         end
 
         local okDecode, decoded = pcall(function()
@@ -2868,35 +2920,97 @@ local function SetupPresetConfigUI()
         end)
 
         if okDecode and type(decoded) == "table" then
-            Presets = decoded
-            print("[Config] Loaded saved preset file.")
+            return decoded
         end
+
+        return nil
     end
 
-    local function WritePresetFile()
-        if not CanUsePersistentFiles() then
+    local function SaveConfigFile()
+        if not HasFileAPI() then
+            Notify(
+                "Config",
+                "Matcha file APIs are unavailable, so configs cannot persist after closing Matcha.",
+                5
+            )
             return false
         end
 
+        if not EnsureConfigFolder() then
+            return false
+        end
+
+        local payload = {
+            Version = 2,
+            Configs = Configs,
+        }
+
         local okEncode, raw = pcall(function()
-            return HttpService:JSONEncode(Presets)
+            return HttpService:JSONEncode(payload)
         end)
 
         if not okEncode then
-            warn("[Config] Could not encode presets: " .. tostring(raw))
+            warn("[Config] JSON encode failed: " .. tostring(raw))
             return false
         end
 
         local okWrite, err = pcall(function()
-            writefile(PRESET_FILE, raw)
+            writefile(CONFIG_FILE, raw)
         end)
 
         if not okWrite then
-            warn("[Config] Could not save presets: " .. tostring(err))
+            warn("[Config] Could not write " .. CONFIG_FILE .. ": " .. tostring(err))
             return false
         end
 
+        print("[Config] Persisted configs to " .. CONFIG_FILE)
         return true
+    end
+
+    local function LoadConfigFile()
+        if not HasFileAPI() then
+            print("[Config] Matcha file APIs unavailable.")
+            return
+        end
+
+        EnsureConfigFolder()
+
+        local decoded = DecodeConfigFile(CONFIG_FILE)
+
+        if type(decoded) == "table" then
+            if type(decoded.Configs) == "table" then
+                Configs = decoded.Configs
+            else
+                -- Accept an older flat table if one was manually placed here.
+                Configs = decoded
+            end
+
+            print("[Config] Loaded persistent configs from " .. CONFIG_FILE)
+            return
+        end
+
+        -- One-time migration from the previous session/preset filename.
+        local legacy = DecodeConfigFile(LEGACY_CONFIG_FILE)
+
+        if type(legacy) == "table" then
+            for oldName, config in pairs(legacy) do
+                local mappedName = oldName
+
+                if oldName == "Slot 1" then
+                    mappedName = "Config 1"
+                elseif oldName == "Slot 2" then
+                    mappedName = "Config 2"
+                elseif oldName == "Slot 3" then
+                    mappedName = "Config 3"
+                end
+
+                Configs[mappedName] = config
+            end
+
+            if SaveConfigFile() then
+                print("[Config] Migrated old fftm_presets.json into " .. CONFIG_FILE)
+            end
+        end
     end
 
     local function CopyAnimationTimings()
@@ -2919,7 +3033,7 @@ local function SetupPresetConfigUI()
         return timings
     end
 
-    local function CapturePreset()
+    local function CaptureConfig()
         return {
             Theme = CurrentTheme,
 
@@ -2934,6 +3048,8 @@ local function SetupPresetConfigUI()
             Combat = {
                 AutoParry = AutoParryToggle.Get(),
                 AutoDodge = AutoDodgeToggle.Get(),
+                AutoCounter = AutoCounterToggle.Get(),
+                AutoAliCounter = AutoAliCounterToggle.Get(),
                 AutoPlay = AutoPlayToggle.Get(),
                 ParryDebug = ParryDebugToggle.Get(),
                 PingCompensation = PingCompensateToggle.Get(),
@@ -2953,7 +3069,6 @@ local function SetupPresetConfigUI()
             },
 
             AnimationTimings = CopyAnimationTimings(),
-
             Whitelist = CopyWhitelist(),
 
             Keybinds = {
@@ -3005,67 +3120,62 @@ local function SetupPresetConfigUI()
 
                 if slider ~= nil and type(slider.Set) == "function" then
                     pcall(function()
-                        slider:Set(
-                            math.floor(seconds * 1000 + 0.5)
-                        )
+                        slider:Set(math.floor(seconds * 1000 + 0.5))
                     end)
                 end
             end
         end
     end
 
-    local function ApplyPreset(preset)
-        if type(preset) ~= "table" then
+    local function ApplyConfig(config)
+        if type(config) ~= "table" then
             return false
         end
 
-        local visuals = preset.Visuals
+        local visuals = config.Visuals
 
         if type(visuals) == "table" then
             if type(visuals.ESP) == "boolean" then
                 state.ESP = visuals.ESP
             end
-
             if type(visuals.Tracers) == "boolean" then
                 state.Tracers = visuals.Tracers
             end
-
             if type(visuals.TracerTransparency) == "number" then
                 state.TracerTransparency = visuals.TracerTransparency
             end
-
             if type(visuals.PlayerHealth) == "boolean" then
                 state.PlayerHealth = visuals.PlayerHealth
             end
-
             if type(visuals.SelfHealth) == "boolean" then
                 state.SelfHealth = visuals.SelfHealth
             end
         end
 
-        local combat = preset.Combat
+        local combat = config.Combat
 
         if type(combat) == "table" then
             if type(combat.AutoParry) == "boolean" then
                 AutoParryToggle.Set(combat.AutoParry)
             end
-
             if type(combat.AutoDodge) == "boolean" then
                 AutoDodgeToggle.Set(combat.AutoDodge)
             end
-
+            if type(combat.AutoCounter) == "boolean" then
+                AutoCounterToggle.Set(combat.AutoCounter)
+            end
+            if type(combat.AutoAliCounter) == "boolean" then
+                AutoAliCounterToggle.Set(combat.AutoAliCounter)
+            end
             if type(combat.AutoPlay) == "boolean" then
                 AutoPlayToggle.Set(combat.AutoPlay)
             end
-
             if type(combat.ParryDebug) == "boolean" then
                 ParryDebugToggle.Set(combat.ParryDebug)
             end
-
             if type(combat.PingCompensation) == "boolean" then
                 PingCompensateToggle.Set(combat.PingCompensation)
             end
-
             if type(combat.HeightMultiplier) == "boolean" then
                 HeightToggle.Set(combat.HeightMultiplier)
             end
@@ -3073,19 +3183,15 @@ local function SetupPresetConfigUI()
             if type(combat.AutoTargetNearest) == "boolean" then
                 AutoTargetNearest.Set(combat.AutoTargetNearest)
             end
-
             if type(combat.MultipleTargets) == "boolean" then
                 MultiTarget.Set(combat.MultipleTargets)
             end
-
             if type(combat.IncludeLocalCharacter) == "boolean" then
                 IncludeLocalCharacter = combat.IncludeLocalCharacter
             end
-
             if type(combat.TargetFacingYou) == "boolean" then
                 TargetFacingYou.Set(combat.TargetFacingYou)
             end
-
             if type(combat.YouFacingTarget) == "boolean" then
                 YouFacingTarget.Set(combat.YouFacingTarget)
             end
@@ -3093,40 +3199,35 @@ local function SetupPresetConfigUI()
             if type(combat.AutoParryRange) == "number" then
                 AutoParryRange = combat.AutoParryRange
             end
-
             if type(combat.MaxCycleRange) == "number" then
                 MaxCycleRange = combat.MaxCycleRange
             end
-
             if type(combat.ProbabilityToParry) == "number" then
                 ProbabilityToParry = combat.ProbabilityToParry
             end
-
             if type(combat.ParryOffset) == "number" then
                 ParryOffset = combat.ParryOffset
             end
-
             if type(combat.ParryWindow) == "number" then
                 ParryWindow = combat.ParryWindow
             end
         end
 
-        if type(preset.Theme) == "string" then
-            CurrentTheme = preset.Theme
+        if type(config.Theme) == "string" then
+            CurrentTheme = config.Theme
 
             pcall(function()
                 Library:SetTheme(CurrentTheme)
             end)
         end
 
-        ApplyWhitelist(preset.Whitelist)
-        ApplyAnimationTimings(preset.AnimationTimings)
+        ApplyWhitelist(config.Whitelist)
+        ApplyAnimationTimings(config.AnimationTimings)
 
-        if type(preset.Keybinds) == "table" then
-            for actionName, keyName in pairs(preset.Keybinds) do
+        if type(config.Keybinds) == "table" then
+            for actionName, keyName in pairs(config.Keybinds) do
                 if ToggleKeybinds[actionName] ~= nil
                     and type(keyName) == "string" then
-
                     ToggleKeybinds[actionName] = keyName
                 end
             end
@@ -3135,25 +3236,74 @@ local function SetupPresetConfigUI()
         return true
     end
 
-    ReadPresetFile()
+    LoadConfigFile()
 
+    -- One compact profile selector for all saved configs.
     SafeAddDropdown(ConfigTab, {
-        Id = "preset_slot",
-        Title = "Preset Slot",
-        Options = {
-            "Slot 1",
-            "Slot 2",
-            "Slot 3"
-        },
-        Default = "Slot 1",
+        Id = "config_profile",
+        Title = "Config",
+        Options = ConfigNames,
+        Default = SelectedConfig,
 
         Callback = function(value)
-            SelectedPresetSlot = value
+            SelectedConfig = value
+            print("[Config] Selected " .. tostring(value))
         end
     })
 
+    SafeAddButton(ConfigTab, {
+        Title = "Save",
 
-    -- Toggle keybinds
+        Callback = function()
+            Configs[SelectedConfig] = CaptureConfig()
+
+            if SaveConfigFile() then
+                Notify(
+                    "Config",
+                    SelectedConfig .. " saved locally.",
+                    3
+                )
+            else
+                Notify(
+                    "Config",
+                    "Could not save " .. SelectedConfig .. " to disk.",
+                    4
+                )
+            end
+        end
+    })
+
+    SafeAddButton(ConfigTab, {
+        Title = "Load",
+
+        Callback = function()
+            -- Re-read the disk copy first. This makes Load use the persisted
+            -- version even after reopening/re-executing Matcha.
+            LoadConfigFile()
+
+            local config = Configs[SelectedConfig]
+
+            if type(config) ~= "table" then
+                Notify(
+                    "Config",
+                    SelectedConfig .. " is empty.",
+                    3
+                )
+                return
+            end
+
+            if ApplyConfig(config) then
+                Notify(
+                    "Config",
+                    SelectedConfig .. " loaded.",
+                    3
+                )
+                print("[Config] Loaded " .. SelectedConfig)
+            end
+        end
+    })
+
+    -- Keep the existing keybind controls below the compact config controls.
     AddKeybindDropdown("kb_esp", "ESP Key", "ESP")
     AddKeybindDropdown("kb_tracers", "Tracers Key", "Tracers")
     AddKeybindDropdown("kb_player_health", "Player Health Key", "PlayerHealth")
@@ -3164,117 +3314,13 @@ local function SetupPresetConfigUI()
     AddKeybindDropdown("kb_auto_play", "Auto Play Key", "AutoPlay")
     AddKeybindDropdown("kb_parry_debug", "Debug Parry Key", "ParryDebug")
 
-    AddKeybindDropdown(
-        "kb_auto_target",
-        "Auto Target Key",
-        "AutoTargetNearest"
-    )
-
-    AddKeybindDropdown(
-        "kb_multi_target",
-        "Multiple Targets Key",
-        "MultipleTargets"
-    )
-
-    AddKeybindDropdown(
-        "kb_include_local",
-        "Include Local Key",
-        "IncludeLocalCharacter"
-    )
-
-    AddKeybindDropdown(
-        "kb_target_facing",
-        "Target Facing You Key",
-        "TargetFacingYou"
-    )
-
-    AddKeybindDropdown(
-        "kb_you_facing",
-        "You Facing Target Key",
-        "YouFacingTarget"
-    )
-
-    AddKeybindDropdown(
-        "kb_height",
-        "Height Multiplier Key",
-        "HeightMultiplier"
-    )
-
-    AddKeybindDropdown(
-        "kb_ping",
-        "Ping Compensation Key",
-        "PingCompensation"
-    )
-
-    SafeAddButton(ConfigTab, {
-        Title = "Save Selected Preset",
-
-        Callback = function()
-            Presets[SelectedPresetSlot] = CapturePreset()
-
-            local persistent = WritePresetFile()
-
-            if persistent then
-                Notify(
-                    "Config",
-                    SelectedPresetSlot .. " saved.",
-                    3
-                )
-            else
-                Notify(
-                    "Config",
-                    SelectedPresetSlot .. " saved for this session.",
-                    4
-                )
-            end
-
-            print("[Config] Saved " .. SelectedPresetSlot)
-        end
-    })
-
-    SafeAddButton(ConfigTab, {
-        Title = "Load Selected Preset",
-
-        Callback = function()
-            local preset = Presets[SelectedPresetSlot]
-
-            if type(preset) ~= "table" then
-                Notify(
-                    "Config",
-                    SelectedPresetSlot .. " is empty.",
-                    3
-                )
-                return
-            end
-
-            if ApplyPreset(preset) then
-                Notify(
-                    "Config",
-                    SelectedPresetSlot .. " loaded.",
-                    3
-                )
-
-                print("[Config] Loaded " .. SelectedPresetSlot)
-            end
-        end
-    })
-
-    SafeAddButton(ConfigTab, {
-        Title = "Delete Selected Preset",
-
-        Callback = function()
-            Presets[SelectedPresetSlot] = nil
-            WritePresetFile()
-
-            Notify(
-                "Config",
-                SelectedPresetSlot .. " deleted.",
-                3
-            )
-
-            print("[Config] Deleted " .. SelectedPresetSlot)
-        end
-    })
+    AddKeybindDropdown("kb_auto_target", "Auto Target Key", "AutoTargetNearest")
+    AddKeybindDropdown("kb_multi_target", "Multiple Targets Key", "MultipleTargets")
+    AddKeybindDropdown("kb_include_local", "Include Local Key", "IncludeLocalCharacter")
+    AddKeybindDropdown("kb_target_facing", "Target Facing You Key", "TargetFacingYou")
+    AddKeybindDropdown("kb_you_facing", "You Facing Target Key", "YouFacingTarget")
+    AddKeybindDropdown("kb_height", "Height Multiplier Key", "HeightMultiplier")
+    AddKeybindDropdown("kb_ping", "Ping Compensation Key", "PingCompensation")
 
     SafeAddDropdown(ConfigTab, {
         Id = "config_theme",
@@ -3305,10 +3351,10 @@ local function SetupPresetConfigUI()
         end
     })
 
-    if CanUsePersistentFiles() then
-        print("[Config] Persistent presets enabled: " .. PRESET_FILE)
+    if HasFileAPI() then
+        print("[Config] Persistent local configs enabled: " .. CONFIG_FILE)
     else
-        print("[Config] File APIs unavailable; presets are session-only.")
+        warn("[Config] Matcha does not expose writefile/readfile/isfile in this environment.")
     end
 end
 
