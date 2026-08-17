@@ -512,6 +512,7 @@ end
 local AutoParryToggle      = NewValueControl(true)
 local AutoDodgeToggle      = NewValueControl(true)
 local AutoCounterToggle    = NewValueControl(false)
+local AutoAliCounterToggle = NewValueControl(false)
 local AutoTargetNearest    = NewValueControl(false)
 local MultiTarget          = NewValueControl(true)
 local HeightToggle         = NewValueControl(true)
@@ -615,6 +616,15 @@ UIToggles.AutoCounter = SafeAddToggle(AutoParryTab, {
     Default = false,
     Callback = function(value)
         AutoCounterToggle.Set(value)
+    end
+})
+
+UIToggles.AutoAliCounter = SafeAddToggle(AutoParryTab, {
+    Id = "auto_ali_counter",
+    Title = "Auto Ali Counter",
+    Default = false,
+    Callback = function(value)
+        AutoAliCounterToggle.Set(value)
     end
 })
 
@@ -1301,7 +1311,7 @@ local function AddSelectedMarker(character)
     markerText.Color = Color3.fromRGB(255, 50, 50)
     markerText.Visible = false
     markerText.ZIndex = 30
-    markerText.Font = Drawing.Fonts.Fortnite
+
     TargetSelectionState.Markers[character] = markerText
 end
 
@@ -1483,6 +1493,66 @@ function Dodge()
         keyrelease(DodgeKey) 
     end
     --  mouse2click()    
+end
+
+local MoveKeys = {
+    W = string.byte("W"),
+    A = string.byte("A"),
+    S = string.byte("S"),
+    D = string.byte("D"),
+}
+
+local function GetMoveKeyTowardTarget(targetCharacter)
+    local localCharacter = LocalPlayer.Character
+    local localRoot = localCharacter and localCharacter:FindFirstChild("HumanoidRootPart")
+    local targetRoot = targetCharacter and targetCharacter:FindFirstChild("HumanoidRootPart")
+
+    if not localRoot or not targetRoot then
+        return MoveKeys.W, "W"
+    end
+
+    local offset = targetRoot.Position - localRoot.Position
+    if offset.Magnitude <= 0.001 then
+        return MoveKeys.W, "W"
+    end
+
+    -- Convert the target direction into the local character's coordinate space.
+    -- Roblox forward is -Z, right is +X.
+    local localDirection = localRoot.CFrame:VectorToObjectSpace(offset.Unit)
+
+    if math.abs(localDirection.X) > math.abs(localDirection.Z) then
+        if localDirection.X > 0 then
+            return MoveKeys.D, "D"
+        else
+            return MoveKeys.A, "A"
+        end
+    else
+        if localDirection.Z < 0 then
+            return MoveKeys.W, "W"
+        else
+            return MoveKeys.S, "S"
+        end
+    end
+end
+
+local function AliDodgeIntoTarget(targetCharacter)
+    BlockEnd()
+
+    local moveKey, moveName = GetMoveKeyTowardTarget(targetCharacter)
+
+    print("[Auto Ali Counter] Dodging toward target with " .. moveName)
+
+    -- Matcha: establish movement first, then inject the dodge while it is held.
+    keypress(moveKey)
+    task.wait(0.025)
+
+    for i = 1, 12 do
+        keypress(DodgeKey)
+        keyrelease(DodgeKey)
+    end
+
+    task.wait(0.035)
+    keyrelease(moveKey)
 end
 
 function Counter(StartTime, HoldFor)
@@ -1994,7 +2064,7 @@ local function CheckAnimationDirection(character, localCharacter, localRoot, tar
     return true
 end
 
-local function ExecuteParry(regData, attackConfig)
+local function ExecuteParry(regData, attackConfig, targetCharacter)
     local now = os.clock()
     if (now - regData.LastExecuteTime) < EXECUTE_DEBOUNCE then
         return
@@ -2014,6 +2084,11 @@ local function ExecuteParry(regData, attackConfig)
             keyrelease(32)                      
         end)
         DodgeLockoutEnd = os.clock() + 0.2
+    elseif isHeavy and AutoAliCounterToggle.Get() then
+        AliDodgeIntoTarget(targetCharacter)
+        print(string.format("Ali Counter triggered by [%s | %s]",
+            tostring(attackConfig.Style),
+            tostring(attackConfig.DisplayName)))
     elseif isHeavy and AutoCounterToggle.Get() then
         Counter(regData.BlockStart)
         print(string.format("Counter triggered by [%s | %s]",
@@ -2074,7 +2149,7 @@ local function EvaluateAnimation(anim, character, localCharacter, localRoot, tar
         or attackConfig.Heavy == true
 
     if attackConfig.ParryFunction
-        and not (isHeavy and AutoCounterToggle.Get())
+        and not (isHeavy and (AutoCounterToggle.Get() or AutoAliCounterToggle.Get()))
         and (now - regData.StartTime) <= (attackConfig.ReactionTime or DefaultReactionTime) + ParryWindow/2 then
         if AutoParryToggle.Get() then  
            attackConfig.ParryFunction({
@@ -2101,7 +2176,7 @@ local function EvaluateAnimation(anim, character, localCharacter, localRoot, tar
     
     if now >= regData.BlockStart and BlockExpireTimer >= 0 then
     --    if not LastPendingRegData or LastPendingRegData.Proc then
-            ExecuteParry(regData, attackConfig)
+            ExecuteParry(regData, attackConfig, character)
     --    end
     end
 end
