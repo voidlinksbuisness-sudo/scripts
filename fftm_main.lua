@@ -591,7 +591,7 @@ local AutoParryTab   = SafeAddTab("Auto Parry", "swords")
 local TargetingTab   = SafeAddTab("Targeting", "crosshair")
 local ParryConfigTab = SafeAddTab("Parry Config", "settings")
 local ConfigTab      = SafeAddTab("Config", "settings")
-local KeybindsTab    = SafeAddTab("Keybinds", "settings")
+KeybindsTab          = SafeAddTab("Keybinds", "settings")
 
 if KeybindsTab == ConfigTab then
     warn("[UI] Keybinds tab creation fell back to ConfigTab.")
@@ -3625,7 +3625,7 @@ local function PollManualCycleKey()
     ManualCycleKeyWasDown = down
 end
 
-local function MainLoop()
+function MainLoop()
     PollManualCycleKey()
 
     local now = os.clock()
