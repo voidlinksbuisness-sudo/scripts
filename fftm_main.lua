@@ -1484,15 +1484,18 @@ function Dodge()
 end
 
 function Counter()
-    -- Release an active parry first, then press/release R using the same
-    -- keypress/keyrelease input method used by Auto Parry.
+    -- Release any active F block, then inject R directly using the same
+    -- keypress/keyrelease primitives used by the rest of the script.
     BlockEnd()
 
-    task.spawn(function()
+    print("[Auto Counter] Pressing R")
+
+    -- Match the reliable tap style already used by Dodge().
+    -- Multiple very fast taps make the input much harder for the game to miss.
+    for i = 1, 12 do
         keypress(HeavyKey)
-        task.wait(BlockHoldTime)
         keyrelease(HeavyKey)
-    end)
+    end
 end
 
 function BlockStart(StartTime, HoldFor)
@@ -1958,7 +1961,11 @@ local function CheckAnimationDirection(character, localCharacter, localRoot, tar
     
     local direction = (targetRoot.Position - localRoot.Position).Unit
     local distance = (targetRoot.Position - localRoot.Position).Magnitude
-    local isHeavy = attackConfig.DisplayName == "M2" or attackConfig.DisplayName == "Heavy" or attackConfig.Heavy
+    local displayName = tostring(attackConfig.DisplayName or "")
+    local isHeavy =
+        displayName == "Heavy"
+        or string.find(displayName, "M2", 1, true) ~= nil
+        or attackConfig.Heavy == true
   --  print(distance)
     
     if not isHeavy then -- and distance > 4 then  
@@ -1976,7 +1983,11 @@ local function ExecuteParry(regData, attackConfig)
     end
     regData.LastExecuteTime = now
 
-    local isHeavy = attackConfig.DisplayName == "M2" or attackConfig.DisplayName == "Heavy" or attackConfig.Heavy
+    local displayName = tostring(attackConfig.DisplayName or "")
+    local isHeavy =
+        displayName == "Heavy"
+        or string.find(displayName, "M2", 1, true) ~= nil
+        or attackConfig.Heavy == true
 
     if attackConfig.Jump then 
         task.spawn(function()
@@ -2038,10 +2049,11 @@ local function EvaluateAnimation(anim, character, localCharacter, localRoot, tar
     -- PARRY FUNCTION OVERRIDE
     -- Auto Counter takes priority for M2/heavy attacks, including attacks that
     -- normally have a custom ParryFunction.
+    local displayName = tostring(attackConfig.DisplayName or "")
     local isHeavy =
-        attackConfig.DisplayName == "M2"
-        or attackConfig.DisplayName == "Heavy"
-        or attackConfig.Heavy
+        displayName == "Heavy"
+        or string.find(displayName, "M2", 1, true) ~= nil
+        or attackConfig.Heavy == true
 
     if attackConfig.ParryFunction
         and not (isHeavy and AutoCounterToggle.Get())
