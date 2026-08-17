@@ -281,7 +281,7 @@ local GameConfig = {
     ["WingChun"] = {
         ["rbxassetid://81810173569294"] = {
             DisplayName = "4thM1",
-            ReactionTime = 0.52
+            ReactionTime = 0.49
         },
         ["rbxassetid://82196924299426"] = {
             DisplayName = "M2",
@@ -289,15 +289,15 @@ local GameConfig = {
         },
         ["rbxassetid://71178147313608"] = {
             DisplayName = "1stM1",
-            ReactionTime = 0.16
+            ReactionTime = 0.13
         },
         ["rbxassetid://117898175201201"] = {
             DisplayName = "2ndM1",
-            ReactionTime = 0.16
+            ReactionTime = 0.13
         },
         ["rbxassetid://121315597867666"] = {
             DisplayName = "3rdM1",
-            ReactionTime = 0.16
+            ReactionTime = 0.13
         },
     },
     ["HakariOtherAnims"] = {
