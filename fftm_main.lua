@@ -1073,10 +1073,10 @@ local function AutoPlayTask()
                     HeldKeys[ReceptorName] = nil
                 end
 
-                task.spawn(function()
-                    keypress(string.byte(Key))
-                    task.wait(0.05)
-                    keyrelease(string.byte(Key))
+                local noteKey = string.byte(Key)
+                keypress(noteKey)
+                scheduler.delay(0.05, function()
+                    keyrelease(noteKey)
                 end)
             end
         end
@@ -2106,10 +2106,9 @@ local function ExecuteParry(regData, attackConfig, targetCharacter)
         or attackConfig.Heavy == true
 
     if attackConfig.Jump then 
-        task.spawn(function()
-            keypress(32)
-            task.wait(.06)
-            keyrelease(32)                      
+        keypress(32)
+        scheduler.delay(0.06, function()
+            keyrelease(32)
         end)
         DodgeLockoutEnd = os.clock() + 0.2
     elseif isHeavy and AutoAliCounterToggle.Get() then
@@ -3455,8 +3454,8 @@ Library:Notify({
 })
 
 -- Prime the target list once after the folder dropdown has selected a default.
-task.defer(function()
-    task.wait(0.25)
+-- Matcha cannot yield with task.wait() from this execution context.
+scheduler.delay(0.25, function()
     if SelectedFolder then
         CycleEvent()
     end
