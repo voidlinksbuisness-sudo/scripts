@@ -1,4 +1,4 @@
--- FFTM_MAIN_BUILD = "2026-08-17 i hate github"
+-- FFTM_MAIN_BUILD = "2026-08-17-SERVER-PRESENCE-FIX-4"
 --// WABI SABI UI
 loadstring(game:HttpGet("https://scripts.wabisabi.mom/wabi-sabi-ui-lib.lua"))()
 
@@ -31,15 +31,29 @@ local Camera = workspace.CurrentCamera
 --==================================================
 -- FFTM REMOTE SESSION CONTROL
 --==================================================
-FFTM_MAIN_VERSION = "2026-08-17-ADMIN-KEY-ONLY-3"
+FFTM_MAIN_VERSION = "2026-08-17-SERVER-PRESENCE-FIX-4"
 FFTM_API_URL = "https://fftm-parry-api.voidlinksbuisness.workers.dev"
 FFTM_RUNNING = true
-FFTM_LAST_HEARTBEAT_AT = 0
+FFTM_LAST_HEARTBEAT_AT = -1000000
 FFTM_LAST_ADMIN_REFRESH_AT = 0
 FFTM_SESSION_ID = nil
 FFTM_ADMIN_KEY = nil
 FFTM_ADMIN_SESSIONS = {}
 FFTM_ADMIN_SELECTED_SESSION = nil
+
+-- Matcha can expose an empty JobId in some contexts.
+-- Use exact JobId when available; otherwise fall back to PlaceId so
+-- heartbeats are never rejected just because JobId is unavailable.
+FFTM_SERVER_JOB_ID = tostring(game.JobId or "")
+FFTM_SERVER_PLACE_ID = tostring(game.PlaceId or 0)
+
+if FFTM_SERVER_JOB_ID ~= "" then
+    FFTM_SERVER_KEY =
+        FFTM_SERVER_PLACE_ID .. ":" .. FFTM_SERVER_JOB_ID
+else
+    FFTM_SERVER_KEY =
+        FFTM_SERVER_PLACE_ID .. ":jobid-unavailable"
+end
 
 do
     local okGuid, guid = pcall(function()
@@ -129,8 +143,9 @@ function FFTMSendHeartbeat()
         username = LocalPlayer.Name,
         display_name = LocalPlayer.DisplayName,
         version = FFTM_MAIN_VERSION,
-        place_id = game.PlaceId,
-        job_id = game.JobId,
+        place_id = FFTM_SERVER_PLACE_ID,
+        job_id = FFTM_SERVER_JOB_ID,
+        server_key = FFTM_SERVER_KEY,
     })
 
     if type(data) == "table" and data.shutdown == true then
@@ -139,14 +154,19 @@ function FFTMSendHeartbeat()
 end
 
 function FFTMFetchAdminSessions()
+    if LocalPlayer.Name ~= "lvy0T" then
+        return {}
+    end
+
     if type(FFTM_ADMIN_KEY) ~= "string" or FFTM_ADMIN_KEY == "" then
         return {}
     end
 
     local data = FFTMGetJson("/admin/sessions", {
         admin_key = FFTM_ADMIN_KEY,
-        place_id = game.PlaceId,
-        job_id = game.JobId,
+        place_id = FFTM_SERVER_PLACE_ID,
+        job_id = FFTM_SERVER_JOB_ID,
+        server_key = FFTM_SERVER_KEY,
     })
 
     if type(data) ~= "table" or type(data.sessions) ~= "table" then
@@ -158,6 +178,10 @@ function FFTMFetchAdminSessions()
 end
 
 function FFTMAdminCommand(path, sessionId)
+    if LocalPlayer.Name ~= "lvy0T" then
+        return false
+    end
+
     if type(FFTM_ADMIN_KEY) ~= "string" or FFTM_ADMIN_KEY == "" then
         return false
     end
@@ -169,8 +193,9 @@ function FFTMAdminCommand(path, sessionId)
     local data = FFTMGetJson(path, {
         admin_key = FFTM_ADMIN_KEY,
         session_id = sessionId,
-        place_id = game.PlaceId,
-        job_id = game.JobId,
+        place_id = FFTM_SERVER_PLACE_ID,
+        job_id = FFTM_SERVER_JOB_ID,
+        server_key = FFTM_SERVER_KEY,
     })
 
     return type(data) == "table" and data.ok == true
@@ -740,9 +765,10 @@ local TargetingTab   = SafeAddTab("Targeting", "crosshair")
 local ParryConfigTab = SafeAddTab("Parry Config", "settings")
 local ConfigTab      = SafeAddTab("Config", "settings")
 
--- Admin controls are created only when the private loader supplied
--- _G.FFTM_ADMIN_KEY. This avoids brittle username spelling/case checks.
-if type(FFTM_ADMIN_KEY) == "string"
+-- Admin controls are created only for lvy0T and only when the private loader
+-- supplied an admin key with getgenv().FFTM_ADMIN_KEY.
+if LocalPlayer.Name == "lvy0T"
+    and type(FFTM_ADMIN_KEY) == "string"
     and FFTM_ADMIN_KEY ~= "" then
 
     FFTMAdminTab = SafeAddTab("Admin", "settings")
@@ -3725,8 +3751,7 @@ function MainLoop()
     end
 
     -- Keep the admin's same-server user list fresh automatically.
-    if type(FFTM_ADMIN_KEY) == "string"
-        and FFTM_ADMIN_KEY ~= ""
+    if LocalPlayer.Name == "lvy0T"
         and type(FFTMRefreshAdminDropdown) == "function"
         and (now - FFTM_LAST_ADMIN_REFRESH_AT) >= 30 then
 
