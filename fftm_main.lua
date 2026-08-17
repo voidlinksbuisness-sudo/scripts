@@ -2630,6 +2630,8 @@ local ToggleKeybinds = {
 
     AutoParry = "None",
     AutoDodge = "None",
+    AutoCounter = "None",
+    AutoAliCounter = "None",
     AutoPlay = "None",
     ParryDebug = "None",
 
@@ -2736,6 +2738,14 @@ local function SetupKeybindEngine()
 
         AutoDodge = function()
             ToggleValueControl(AutoDodgeToggle, UIToggles.AutoDodge)
+        end,
+
+        AutoCounter = function()
+            ToggleValueControl(AutoCounterToggle, UIToggles.AutoCounter)
+        end,
+
+        AutoAliCounter = function()
+            ToggleValueControl(AutoAliCounterToggle, UIToggles.AutoAliCounter)
         end,
 
         AutoPlay = function()
@@ -3086,6 +3096,8 @@ function SetupPresetConfigUI()
 
                 AutoParry = ToggleKeybinds.AutoParry,
                 AutoDodge = ToggleKeybinds.AutoDodge,
+                AutoCounter = ToggleKeybinds.AutoCounter,
+                AutoAliCounter = ToggleKeybinds.AutoAliCounter,
                 AutoPlay = ToggleKeybinds.AutoPlay,
                 ParryDebug = ToggleKeybinds.ParryDebug,
 
@@ -3318,6 +3330,8 @@ function SetupPresetConfigUI()
 
     AddKeybindDropdown("kb_auto_parry", "Auto Parry Key", "AutoParry")
     AddKeybindDropdown("kb_auto_dodge", "Auto Dodge Key", "AutoDodge")
+    AddKeybindDropdown("kb_auto_counter", "Auto Counter Key", "AutoCounter")
+    AddKeybindDropdown("kb_auto_ali_counter", "Auto Ali Counter Key", "AutoAliCounter")
     AddKeybindDropdown("kb_auto_play", "Auto Play Key", "AutoPlay")
     AddKeybindDropdown("kb_parry_debug", "Debug Parry Key", "ParryDebug")
 
@@ -3535,14 +3549,17 @@ UIS.InputBegan:Connect(function(input, gameProcessed)
         return
     end
 
+    -- Custom toggle keybinds must run before the RhythmServiceUI guard.
+    -- Gakuran can keep RhythmServiceUI present, which previously caused every
+    -- configured keybind to be skipped.
+    if ProcessToggleKeybind(input) then
+        return
+    end
+
     local RhythmServiceUI =
         game.Players.LocalPlayer.PlayerGui:FindFirstChild("RhythmServiceUI")
 
     if RhythmServiceUI then
-        return
-    end
-
-    if ProcessToggleKeybind(input) then
         return
     end
 
