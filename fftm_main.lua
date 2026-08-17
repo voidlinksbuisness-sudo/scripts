@@ -1535,24 +1535,52 @@ local function GetMoveKeyTowardTarget(targetCharacter)
     end
 end
 
+local AliInjectedMoveKey = nil
+
+local function ReleaseAliMoveKey()
+    if AliInjectedMoveKey then
+        pcall(function()
+            keyrelease(AliInjectedMoveKey)
+        end)
+
+        AliInjectedMoveKey = nil
+    end
+end
+
 local function AliDodgeIntoTarget(targetCharacter)
     BlockEnd()
 
+    -- Clean up a previous Ali counter first so a direction can never remain held.
+    ReleaseAliMoveKey()
+
     local moveKey, moveName = GetMoveKeyTowardTarget(targetCharacter)
+    AliInjectedMoveKey = moveKey
 
-    print("[Auto Ali Counter] Dodging toward target with " .. moveName)
-
-    -- Matcha: establish movement first, then inject the dodge while it is held.
+    print("[Auto Ali Counter] " .. moveName .. " DOWN")
     keypress(moveKey)
-    task.wait(0.025)
 
-    for i = 1, 12 do
-        keypress(DodgeKey)
-        keyrelease(DodgeKey)
-    end
+    -- Matcha is more reliable when we do not yield inside the attack callback.
+    -- Give movement a tiny amount of time to register, then fire the same
+    -- Q injection used by the normal Dodge() implementation.
+    scheduler.delay(0.02, function()
+        print("[Auto Ali Counter] Q DASH")
 
-    task.wait(0.035)
-    keyrelease(moveKey)
+        for i = 1, 12 do
+            keypress(DodgeKey)
+            keyrelease(DodgeKey)
+        end
+    end)
+
+    -- Always release the movement direction shortly after the dash.
+    scheduler.delay(0.08, function()
+        print("[Auto Ali Counter] " .. moveName .. " UP")
+        ReleaseAliMoveKey()
+    end)
+
+    -- Extra fail-safe cleanup in case the first scheduled release is missed.
+    scheduler.delay(0.20, function()
+        ReleaseAliMoveKey()
+    end)
 end
 
 function Counter(StartTime, HoldFor)
