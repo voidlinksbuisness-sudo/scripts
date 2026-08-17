@@ -1,4 +1,4 @@
--- FFTM_MAIN_BUILD = "2026-08-17-NOKEYBINDS-VERIFIED-1"
+-- FFTM_MAIN_BUILD = "2026-08-17-REMOTE-CONTROL-1"
 --// WABI SABI UI
 loadstring(game:HttpGet("https://scripts.wabisabi.mom/wabi-sabi-ui-lib.lua"))()
 
@@ -27,6 +27,153 @@ local CycleKeybind = Enum.KeyCode.X
 
 local LocalPlayer = Players.LocalPlayer
 local Camera = workspace.CurrentCamera
+
+--==================================================
+-- FFTM REMOTE SESSION CONTROL
+--==================================================
+FFTM_MAIN_VERSION = "2026-08-17-REMOTE-CONTROL-1"
+FFTM_API_URL = "https://fftm-parry-api.voidlinksbuisness.workers.dev"
+FFTM_RUNNING = true
+FFTM_LAST_HEARTBEAT_AT = 0
+FFTM_SESSION_ID = nil
+FFTM_ADMIN_KEY = nil
+FFTM_ADMIN_SESSIONS = {}
+FFTM_ADMIN_SELECTED_SESSION = nil
+
+do
+    local okGuid, guid = pcall(function()
+        return game:GetService("HttpService"):GenerateGUID(false)
+    end)
+
+    FFTM_SESSION_ID = okGuid and guid
+        or (tostring(LocalPlayer.UserId) .. "-" .. tostring(os.time()) .. "-" .. tostring(math.random(100000, 999999)))
+
+    if type(getgenv) == "function" then
+        local env = getgenv()
+        if type(env) == "table" then
+            FFTM_ADMIN_KEY = env.FFTM_ADMIN_KEY
+        end
+    end
+end
+
+function FFTMGetRequestFunction()
+    if type(request) == "function" then
+        return request
+    end
+
+    if type(http_request) == "function" then
+        return http_request
+    end
+
+    if type(syn) == "table" and type(syn.request) == "function" then
+        return syn.request
+    end
+
+    return nil
+end
+
+function FFTMRequest(method, path, body, admin)
+    local requestFunction = FFTMGetRequestFunction()
+
+    if type(requestFunction) ~= "function" then
+        return nil, "Matcha request API unavailable"
+    end
+
+    local headers = {
+        ["Content-Type"] = "application/json",
+    }
+
+    if admin == true then
+        if type(FFTM_ADMIN_KEY) ~= "string" or FFTM_ADMIN_KEY == "" then
+            return nil, "Missing admin key"
+        end
+
+        headers["Authorization"] = "Bearer " .. FFTM_ADMIN_KEY
+    end
+
+    local options = {
+        Url = FFTM_API_URL .. path,
+        Method = method,
+        Headers = headers,
+    }
+
+    if body ~= nil then
+        options.Body = game:GetService("HttpService"):JSONEncode(body)
+    end
+
+    local ok, response = pcall(function()
+        return requestFunction(options)
+    end)
+
+    if not ok then
+        return nil, tostring(response)
+    end
+
+    local responseBody = response and (response.Body or response.body)
+
+    if type(responseBody) ~= "string" then
+        return nil, "Invalid response"
+    end
+
+    local decodeOk, decoded = pcall(function()
+        return game:GetService("HttpService"):JSONDecode(responseBody)
+    end)
+
+    if not decodeOk then
+        return nil, "Invalid JSON response"
+    end
+
+    return decoded, nil
+end
+
+function FFTMSendHeartbeat()
+    if not FFTM_RUNNING then
+        return
+    end
+
+    local data = FFTMRequest("POST", "/heartbeat", {
+        session_id = FFTM_SESSION_ID,
+        user_id = LocalPlayer.UserId,
+        username = LocalPlayer.Name,
+        display_name = LocalPlayer.DisplayName,
+        version = FFTM_MAIN_VERSION,
+    }, false)
+
+    if type(data) == "table" and data.shutdown == true then
+        FFTMShutdown()
+    end
+end
+
+function FFTMFetchAdminSessions()
+    if LocalPlayer.Name ~= "lvy0T" then
+        return {}
+    end
+
+    local data = FFTMRequest("GET", "/admin/sessions", nil, true)
+
+    if type(data) ~= "table" or type(data.sessions) ~= "table" then
+        return {}
+    end
+
+    FFTM_ADMIN_SESSIONS = data.sessions
+    return FFTM_ADMIN_SESSIONS
+end
+
+function FFTMAdminCommand(path, sessionId)
+    if LocalPlayer.Name ~= "lvy0T" then
+        return false
+    end
+
+    if type(sessionId) ~= "string" or sessionId == "" then
+        return false
+    end
+
+    local data = FFTMRequest("POST", path, {
+        session_id = sessionId,
+    }, true)
+
+    return type(data) == "table" and data.ok == true
+end
 
 --// COLORS
 local C = {
@@ -591,6 +738,128 @@ local AutoParryTab   = SafeAddTab("Auto Parry", "swords")
 local TargetingTab   = SafeAddTab("Targeting", "crosshair")
 local ParryConfigTab = SafeAddTab("Parry Config", "settings")
 local ConfigTab      = SafeAddTab("Config", "settings")
+
+-- Admin controls are created only for lvy0T and only when the private loader
+-- supplied an admin key with getgenv().FFTM_ADMIN_KEY.
+if LocalPlayer.Name == "lvy0T"
+    and type(FFTM_ADMIN_KEY) == "string"
+    and FFTM_ADMIN_KEY ~= "" then
+
+    FFTMAdminTab = SafeAddTab("Admin", "settings")
+
+    FFTMAdminSessionsAtOpen = FFTMFetchAdminSessions()
+    FFTMAdminOptions = {}
+    FFTM_ADMIN_OPTION_TO_SESSION = {}
+
+    for _, session in ipairs(FFTMAdminSessionsAtOpen) do
+        local label =
+            tostring(session.username or "Unknown")
+            .. " | "
+            .. tostring(session.user_id or "?")
+
+        if session.shutdown == 1 or session.shutdown == true then
+            label = label .. " [DISABLED]"
+        end
+
+        table.insert(FFTMAdminOptions, label)
+        FFTM_ADMIN_OPTION_TO_SESSION[label] = tostring(session.session_id or "")
+    end
+
+    if #FFTMAdminOptions == 0 then
+        table.insert(FFTMAdminOptions, "No active sessions")
+    end
+
+    FFTMAdminDropdown = SafeAddDropdown(FFTMAdminTab, {
+        Id = "admin_active_session",
+        Title = "Active User",
+        Options = FFTMAdminOptions,
+        Default = FFTMAdminOptions[1],
+
+        Callback = function(value)
+            local label = tostring(value)
+            FFTM_ADMIN_SELECTED_SESSION =
+                FFTM_ADMIN_OPTION_TO_SESSION[label]
+        end
+    })
+
+    SafeAddButton(FFTMAdminTab, {
+        Title = "Refresh Users",
+
+        Callback = function()
+            local refreshed = FFTMFetchAdminSessions()
+            local options = {}
+            FFTM_ADMIN_OPTION_TO_SESSION = {}
+
+            for _, session in ipairs(refreshed) do
+                local label =
+                    tostring(session.username or "Unknown")
+                    .. " | "
+                    .. tostring(session.user_id or "?")
+
+                if session.shutdown == 1 or session.shutdown == true then
+                    label = label .. " [DISABLED]"
+                end
+
+                table.insert(options, label)
+                FFTM_ADMIN_OPTION_TO_SESSION[label] =
+                    tostring(session.session_id or "")
+            end
+
+            if #options == 0 then
+                table.insert(options, "No active sessions")
+            end
+
+            -- Wabi builds vary; try common option-refresh methods safely.
+            if FFTMAdminDropdown then
+                pcall(function()
+                    if type(FFTMAdminDropdown.SetOptions) == "function" then
+                        FFTMAdminDropdown:SetOptions(options)
+                    elseif type(FFTMAdminDropdown.SetValues) == "function" then
+                        FFTMAdminDropdown:SetValues(options)
+                    elseif type(FFTMAdminDropdown.Refresh) == "function" then
+                        FFTMAdminDropdown:Refresh(options)
+                    end
+                end)
+            end
+
+            Notify("Admin", "Active sessions refreshed: " .. tostring(#refreshed), 3)
+        end
+    })
+
+    SafeAddButton(FFTMAdminTab, {
+        Title = "Shutdown Selected",
+
+        Callback = function()
+            if not FFTM_ADMIN_SELECTED_SESSION then
+                Notify("Admin", "Select an active user first.", 3)
+                return
+            end
+
+            if FFTMAdminCommand("/admin/shutdown", FFTM_ADMIN_SELECTED_SESSION) then
+                Notify("Admin", "Shutdown command sent.", 3)
+            else
+                Notify("Admin", "Shutdown request failed.", 4)
+            end
+        end
+    })
+
+    SafeAddButton(FFTMAdminTab, {
+        Title = "Enable Selected",
+
+        Callback = function()
+            if not FFTM_ADMIN_SELECTED_SESSION then
+                Notify("Admin", "Select a user first.", 3)
+                return
+            end
+
+            if FFTMAdminCommand("/admin/enable", FFTM_ADMIN_SELECTED_SESSION) then
+                Notify("Admin", "Session enabled.", 3)
+            else
+                Notify("Admin", "Enable request failed.", 4)
+            end
+        end
+    })
+end
 
 UIToggles.AutoParry = SafeAddToggle(AutoParryTab, {
     Id = "auto_parry",
@@ -1545,6 +1814,55 @@ function ReleaseAliMoveKey()
 
         AliInjectedMoveKey = nil
     end
+end
+
+function FFTMShutdown()
+    if not FFTM_RUNNING then
+        return
+    end
+
+    FFTM_RUNNING = false
+
+    pcall(function() AutoParryToggle.Set(false) end)
+    pcall(function() AutoDodgeToggle.Set(false) end)
+    pcall(function() AutoCounterToggle.Set(false) end)
+    pcall(function() AutoAliCounterToggle.Set(false) end)
+    pcall(function() AutoPlayToggle.Set(false) end)
+
+    pcall(function() state.ESP = false end)
+    pcall(function() state.Tracers = false end)
+    pcall(function() state.PlayerHealth = false end)
+    pcall(function() state.SelfHealth = false end)
+
+    pcall(BlockEnd)
+    pcall(CounterEnd)
+    pcall(ReleaseAliMoveKey)
+    pcall(ClearSelectedMarkers)
+
+    pcall(function()
+        myHealthText.Visible = false
+        hidePoolFrom(espBoxes, 1)
+        hidePoolFrom(tracerLines, 1)
+        hidePoolFrom(healthTexts, 1)
+    end)
+
+    pcall(function()
+        if Window and type(Window.Destroy) == "function" then
+            Window:Destroy()
+        end
+    end)
+
+    pcall(function()
+        if Window and type(Window.Unload) == "function" then
+            Window:Unload()
+        end
+    end)
+
+    pcall(function()
+        if Library and type(Library.Unload) == "function" then
+            Library:Unload()
+        end
+    end)
 end
 
 function AliDodgeIntoTarget(targetCharacter)
@@ -3361,9 +3679,20 @@ function PollManualCycleKey()
 end
 
 function MainLoop()
+    if not FFTM_RUNNING then
+        return
+    end
+
     PollManualCycleKey()
 
     local now = os.clock()
+
+    -- Five-second session heartbeat without task.wait(), for Matcha.
+    if (now - FFTM_LAST_HEARTBEAT_AT) >= 5 then
+        FFTM_LAST_HEARTBEAT_AT = now
+        FFTMSendHeartbeat()
+    end
+
     local localChar = LocalPlayer.Character
     if not localChar then return end
 
@@ -3399,11 +3728,18 @@ function MainLoop()
     end
 end
 
+-- Register/log this session immediately, then continue with 5-second checks.
+FFTMSendHeartbeat()
+
 RunService.RenderStepped:Connect(MainLoop)
 --RunService.Heartbeat:Connect(MainLoop)
 
 -- Existing base visual loop
 RunService.RenderStepped:Connect(function()
+    if not FFTM_RUNNING then
+        return
+    end
+
     local players = Players:GetPlayers()
     updateEspTracers(players)
     updateHealth(players)
