@@ -1,4 +1,4 @@
--- FFTM_MAIN_BUILD = "2026-08-17-ADMIN-SERVER-FIX-10S-6"
+-- FFTM_MAIN_BUILD = "2026-08-17-LATEST-SESSION-ONLY-7"
 --// WABI SABI UI
 loadstring(game:HttpGet("https://scripts.wabisabi.mom/wabi-sabi-ui-lib.lua"))()
 
@@ -31,7 +31,7 @@ local Camera = workspace.CurrentCamera
 --==================================================
 -- FFTM REMOTE SESSION CONTROL
 --==================================================
-FFTM_MAIN_VERSION = "2026-08-17-ADMIN-SERVER-FIX-10S-6"
+FFTM_MAIN_VERSION = "2026-08-17-LATEST-SESSION-ONLY-7"
 FFTM_API_URL = "https://fftm-parry-api.voidlinksbuisness.workers.dev"
 FFTM_RUNNING = true
 FFTM_LAST_HEARTBEAT_AT = -1000000
@@ -791,7 +791,36 @@ if type(FFTM_ADMIN_KEY) == "string"
         local options = {}
         FFTM_ADMIN_OPTION_TO_SESSION = {}
 
+        -- Keep only the newest active session for each Roblox user.
+        local newestByUserId = {}
+
         for _, session in ipairs(sessions or {}) do
+            local userId = tostring(session.user_id or "")
+            local lastSeen = tonumber(session.last_seen) or 0
+
+            if userId ~= "" then
+                local current = newestByUserId[userId]
+                local currentLastSeen =
+                    current and (tonumber(current.last_seen) or 0) or -1
+
+                if not current or lastSeen > currentLastSeen then
+                    newestByUserId[userId] = session
+                end
+            end
+        end
+
+        local newestSessions = {}
+
+        for _, session in pairs(newestByUserId) do
+            table.insert(newestSessions, session)
+        end
+
+        table.sort(newestSessions, function(a, b)
+            return (tonumber(a.last_seen) or 0)
+                > (tonumber(b.last_seen) or 0)
+        end)
+
+        for _, session in ipairs(newestSessions) do
             local label =
                 tostring(session.username or "Unknown")
                 .. " | "
@@ -814,6 +843,9 @@ if type(FFTM_ADMIN_KEY) == "string"
             end
 
             table.insert(options, label)
+
+            -- IMPORTANT:
+            -- map the visible user entry to ONLY their newest session_id.
             FFTM_ADMIN_OPTION_TO_SESSION[label] =
                 tostring(session.session_id or "")
         end
