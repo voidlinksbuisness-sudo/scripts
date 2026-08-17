@@ -1165,6 +1165,8 @@ local DodgeKey = string.byte("Q")
 local HeavyKey = string.byte("R")
 
 local KeyHeld = false
+local CounterKeyHeld = false
+local CounterReleaseDeadline = 0
 local TriggerParry = false
 
 local Stunned = false
@@ -1483,19 +1485,31 @@ function Dodge()
     --  mouse2click()    
 end
 
-function Counter()
-    -- Release any active F block, then inject R directly using the same
-    -- keypress/keyrelease primitives used by the rest of the script.
+function Counter(StartTime, HoldFor)
+    -- Match Auto Parry's Matcha input behavior:
+    -- press once now, then release from ParryTask after a deadline.
     BlockEnd()
 
-    print("[Auto Counter] Pressing R")
+    local startTime = StartTime or os.clock()
+    local holdFor = HoldFor or BlockHoldTime
 
-    -- Match the reliable tap style already used by Dodge().
-    -- Multiple very fast taps make the input much harder for the game to miss.
-    for i = 1, 12 do
-        keypress(HeavyKey)
-        keyrelease(HeavyKey)
+    CounterReleaseDeadline = startTime + holdFor
+    CounterKeyHeld = true
+
+    print("[Auto Counter] R DOWN")
+    keypress(HeavyKey)
+end
+
+function CounterEnd()
+    if not CounterKeyHeld then
+        return
     end
+
+    CounterKeyHeld = false
+    CounterReleaseDeadline = 0
+
+    print("[Auto Counter] R UP")
+    keyrelease(HeavyKey)
 end
 
 function BlockStart(StartTime, HoldFor)
@@ -1721,6 +1735,10 @@ local function ParryTask()
 
     if KeyHeld and os.clock() > ReleaseDeadline then
         BlockEnd()
+    end
+
+    if CounterKeyHeld and os.clock() > CounterReleaseDeadline then
+        CounterEnd()
     end
 
     if CurrentParryState == ParryState.INPUT_PENDING then
@@ -1997,7 +2015,7 @@ local function ExecuteParry(regData, attackConfig)
         end)
         DodgeLockoutEnd = os.clock() + 0.2
     elseif isHeavy and AutoCounterToggle.Get() then
-        Counter()
+        Counter(regData.BlockStart)
         print(string.format("Counter triggered by [%s | %s]",
             tostring(attackConfig.Style),
             tostring(attackConfig.DisplayName)))
