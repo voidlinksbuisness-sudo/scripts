@@ -1,4 +1,4 @@
--- FFTM_MAIN_BUILD = "2026-08-17-ADMIN-SERVER-FIX-5"
+-- FFTM_MAIN_BUILD = "2026-08-17-ADMIN-SERVER-FIX-10S-6"
 --// WABI SABI UI
 loadstring(game:HttpGet("https://scripts.wabisabi.mom/wabi-sabi-ui-lib.lua"))()
 
@@ -31,7 +31,7 @@ local Camera = workspace.CurrentCamera
 --==================================================
 -- FFTM REMOTE SESSION CONTROL
 --==================================================
-FFTM_MAIN_VERSION = "2026-08-17-ADMIN-SERVER-FIX-5"
+FFTM_MAIN_VERSION = "2026-08-17-ADMIN-SERVER-FIX-10S-6"
 FFTM_API_URL = "https://fftm-parry-api.voidlinksbuisness.workers.dev"
 FFTM_RUNNING = true
 FFTM_LAST_HEARTBEAT_AT = -1000000
@@ -3755,9 +3755,9 @@ function MainLoop()
     local now = os.clock()
 
     -- Matcha-safe heartbeat. No task.wait() / coroutine required.
-    -- First heartbeat is immediate because FFTM_LAST_HEARTBEAT_AT starts at 0,
-    -- then each active client checks in every 30 seconds.
-    if (now - FFTM_LAST_HEARTBEAT_AT) >= 30 then
+    -- First heartbeat is immediate, then each active client checks in every
+    -- 10 seconds so remote shutdown is picked up within about 10 seconds.
+    if (now - FFTM_LAST_HEARTBEAT_AT) >= 10 then
         FFTM_LAST_HEARTBEAT_AT = now
         FFTMSendHeartbeat()
     end
