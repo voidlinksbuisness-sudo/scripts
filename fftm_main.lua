@@ -2794,8 +2794,17 @@ local function SetupKeybindEngine()
             return input.KeyCode.Name
         end)
 
-        if ok then
+        if ok and type(name) == "string" and name ~= "" then
             return name
+        end
+
+        -- Matcha fallback: tostring(Enum.KeyCode.G) -> "Enum.KeyCode.G"
+        local okString, raw = pcall(function()
+            return tostring(input.KeyCode)
+        end)
+
+        if okString and type(raw) == "string" then
+            return raw:match("Enum%.KeyCode%.(.+)$") or raw
         end
 
         return nil
@@ -2856,6 +2865,13 @@ local function SetupKeybindEngine()
 end
 
 SetupKeybindEngine()
+
+-- Dedicated raw keybind listener.
+-- Do NOT inspect gameProcessed here: Matcha/Roblox can mark physical keys as
+-- processed even though we still want them to toggle FFTM settings.
+UIS.InputBegan:Connect(function(input)
+    ProcessToggleKeybind(input)
+end)
 
 --==================================================
 -- MATCHA KEYBIND POLLING FALLBACK
@@ -3657,13 +3673,6 @@ UIS.InputBegan:Connect(function(input, gameProcessed)
     end
 
     if gameProcessed then
-        return
-    end
-
-    -- Custom toggle keybinds must run before the RhythmServiceUI guard.
-    -- Gakuran can keep RhythmServiceUI present, which previously caused every
-    -- configured keybind to be skipped.
-    if ProcessToggleKeybind(input) then
         return
     end
 
