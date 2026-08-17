@@ -1,4 +1,3 @@
-```
 -- FFTM_MAIN_BUILD = "2026-08-17-ADMIN-KEY-ONLY-3"
 --// WABI SABI UI
 loadstring(game:HttpGet("https://scripts.wabisabi.mom/wabi-sabi-ui-lib.lua"))()
@@ -3789,4 +3788,3 @@ RunService.RenderStepped:Connect(function()
 end)
 
 print("Free Fortnite Cheats TM | Wabi tabs safe-fallback build loaded")
-```
