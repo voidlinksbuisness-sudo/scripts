@@ -1,4 +1,4 @@
--- FFTM_MAIN_BUILD = "2026-08-17-ADMIN-KEY-ONLY-3"
+-- FFTM_MAIN_BUILD = "2026-08-17 i hate github"
 --// WABI SABI UI
 loadstring(game:HttpGet("https://scripts.wabisabi.mom/wabi-sabi-ui-lib.lua"))()
 
