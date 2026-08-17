@@ -241,11 +241,11 @@ local GameConfig = {
         },
         ["rbxassetid://115234849770695"] = {
             DisplayName = "2ndM1",
-            ReactionTime = 0.2,
+            ReactionTime = 0.18,
         },
         ["rbxassetid://85554794950365"] = {
             DisplayName = "3rdM1",
-            ReactionTime = 0.1,
+            ReactionTime = 0.05,
         },
         ["rbxassetid://73777821288331"] = {
             DisplayName = "4thM1",
