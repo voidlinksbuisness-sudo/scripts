@@ -2993,8 +2993,6 @@ function SetupPresetConfigUI()
 
         ApplyWhitelist(config.Whitelist)
         ApplyAnimationTimings(config.AnimationTimings)
-            end
-        end
 
         return true
     end
