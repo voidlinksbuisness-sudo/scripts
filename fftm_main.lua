@@ -1,4 +1,4 @@
--- FFTM_MAIN_BUILD = "2026-08-17-REMOTE-GET-2"
+-- FFTM_MAIN_BUILD = "2026-08-17-SERVER-ADMIN-1"
 --// WABI SABI UI
 loadstring(game:HttpGet("https://scripts.wabisabi.mom/wabi-sabi-ui-lib.lua"))()
 
@@ -31,10 +31,11 @@ local Camera = workspace.CurrentCamera
 --==================================================
 -- FFTM REMOTE SESSION CONTROL
 --==================================================
-FFTM_MAIN_VERSION = "2026-08-17-REMOTE-GET-2"
+FFTM_MAIN_VERSION = "2026-08-17-SERVER-ADMIN-1"
 FFTM_API_URL = "https://fftm-parry-api.voidlinksbuisness.workers.dev"
 FFTM_RUNNING = true
 FFTM_LAST_HEARTBEAT_AT = 0
+FFTM_LAST_ADMIN_REFRESH_AT = 0
 FFTM_SESSION_ID = nil
 FFTM_ADMIN_KEY = nil
 FFTM_ADMIN_SESSIONS = {}
@@ -121,6 +122,8 @@ function FFTMSendHeartbeat()
         username = LocalPlayer.Name,
         display_name = LocalPlayer.DisplayName,
         version = FFTM_MAIN_VERSION,
+        place_id = game.PlaceId,
+        job_id = game.JobId,
     })
 
     if type(data) == "table" and data.shutdown == true then
@@ -139,6 +142,8 @@ function FFTMFetchAdminSessions()
 
     local data = FFTMGetJson("/admin/sessions", {
         admin_key = FFTM_ADMIN_KEY,
+        place_id = game.PlaceId,
+        job_id = game.JobId,
     })
 
     if type(data) ~= "table" or type(data.sessions) ~= "table" then
@@ -165,6 +170,8 @@ function FFTMAdminCommand(path, sessionId)
     local data = FFTMGetJson(path, {
         admin_key = FFTM_ADMIN_KEY,
         session_id = sessionId,
+        place_id = game.PlaceId,
+        job_id = game.JobId,
     })
 
     return type(data) == "table" and data.ok == true
@@ -741,34 +748,80 @@ if LocalPlayer.Name == "lvy0T"
     and FFTM_ADMIN_KEY ~= "" then
 
     FFTMAdminTab = SafeAddTab("Admin", "settings")
-
-    FFTMAdminSessionsAtOpen = FFTMFetchAdminSessions()
-    FFTMAdminOptions = {}
     FFTM_ADMIN_OPTION_TO_SESSION = {}
+    FFTMAdminDropdown = nil
 
-    for _, session in ipairs(FFTMAdminSessionsAtOpen) do
-        local label =
-            tostring(session.username or "Unknown")
-            .. " | "
-            .. tostring(session.user_id or "?")
+    function FFTMBuildAdminOptions(sessions)
+        local options = {}
+        FFTM_ADMIN_OPTION_TO_SESSION = {}
 
-        if session.shutdown == 1 or session.shutdown == true then
-            label = label .. " [DISABLED]"
+        for _, session in ipairs(sessions or {}) do
+            local label =
+                tostring(session.username or "Unknown")
+                .. " | "
+                .. tostring(session.user_id or "?")
+
+            if session.display_name
+                and tostring(session.display_name) ~= ""
+                and tostring(session.display_name) ~= tostring(session.username) then
+
+                label =
+                    tostring(session.display_name)
+                    .. " (@"
+                    .. tostring(session.username)
+                    .. ") | "
+                    .. tostring(session.user_id or "?")
+            end
+
+            if session.shutdown == 1 or session.shutdown == true then
+                label = label .. " [SHUTDOWN]"
+            end
+
+            table.insert(options, label)
+            FFTM_ADMIN_OPTION_TO_SESSION[label] =
+                tostring(session.session_id or "")
         end
 
-        table.insert(FFTMAdminOptions, label)
-        FFTM_ADMIN_OPTION_TO_SESSION[label] = tostring(session.session_id or "")
+        if #options == 0 then
+            table.insert(options, "No FFTM users in this server")
+        end
+
+        return options
     end
 
-    if #FFTMAdminOptions == 0 then
-        table.insert(FFTMAdminOptions, "No active sessions")
+    function FFTMRefreshAdminDropdown()
+        local sessions = FFTMFetchAdminSessions()
+        local options = FFTMBuildAdminOptions(sessions)
+
+        FFTM_ADMIN_SELECTED_SESSION =
+            FFTM_ADMIN_OPTION_TO_SESSION[options[1]]
+
+        if FFTMAdminDropdown then
+            pcall(function()
+                if type(FFTMAdminDropdown.SetOptions) == "function" then
+                    FFTMAdminDropdown:SetOptions(options)
+                elseif type(FFTMAdminDropdown.SetValues) == "function" then
+                    FFTMAdminDropdown:SetValues(options)
+                elseif type(FFTMAdminDropdown.Refresh) == "function" then
+                    FFTMAdminDropdown:Refresh(options)
+                end
+            end)
+        end
+
+        return options, sessions
     end
+
+    local initialSessions = FFTMFetchAdminSessions()
+    local initialOptions = FFTMBuildAdminOptions(initialSessions)
+
+    FFTM_ADMIN_SELECTED_SESSION =
+        FFTM_ADMIN_OPTION_TO_SESSION[initialOptions[1]]
 
     FFTMAdminDropdown = SafeAddDropdown(FFTMAdminTab, {
         Id = "admin_active_session",
-        Title = "Active User",
-        Options = FFTMAdminOptions,
-        Default = FFTMAdminOptions[1],
+        Title = "FFTM Users In This Server",
+        Options = initialOptions,
+        Default = initialOptions[1],
 
         Callback = function(value)
             local label = tostring(value)
@@ -781,43 +834,13 @@ if LocalPlayer.Name == "lvy0T"
         Title = "Refresh Users",
 
         Callback = function()
-            local refreshed = FFTMFetchAdminSessions()
-            local options = {}
-            FFTM_ADMIN_OPTION_TO_SESSION = {}
+            local _, sessions = FFTMRefreshAdminDropdown()
 
-            for _, session in ipairs(refreshed) do
-                local label =
-                    tostring(session.username or "Unknown")
-                    .. " | "
-                    .. tostring(session.user_id or "?")
-
-                if session.shutdown == 1 or session.shutdown == true then
-                    label = label .. " [DISABLED]"
-                end
-
-                table.insert(options, label)
-                FFTM_ADMIN_OPTION_TO_SESSION[label] =
-                    tostring(session.session_id or "")
-            end
-
-            if #options == 0 then
-                table.insert(options, "No active sessions")
-            end
-
-            -- Wabi builds vary; try common option-refresh methods safely.
-            if FFTMAdminDropdown then
-                pcall(function()
-                    if type(FFTMAdminDropdown.SetOptions) == "function" then
-                        FFTMAdminDropdown:SetOptions(options)
-                    elseif type(FFTMAdminDropdown.SetValues) == "function" then
-                        FFTMAdminDropdown:SetValues(options)
-                    elseif type(FFTMAdminDropdown.Refresh) == "function" then
-                        FFTMAdminDropdown:Refresh(options)
-                    end
-                end)
-            end
-
-            Notify("Admin", "Active sessions refreshed: " .. tostring(#refreshed), 3)
+            Notify(
+                "Admin",
+                "FFTM users in this server: " .. tostring(#sessions),
+                3
+            )
         end
     })
 
@@ -826,12 +849,21 @@ if LocalPlayer.Name == "lvy0T"
 
         Callback = function()
             if not FFTM_ADMIN_SELECTED_SESSION then
-                Notify("Admin", "Select an active user first.", 3)
+                Notify("Admin", "Select an FFTM user first.", 3)
                 return
             end
 
-            if FFTMAdminCommand("/admin/shutdown", FFTM_ADMIN_SELECTED_SESSION) then
-                Notify("Admin", "Shutdown command sent.", 3)
+            if FFTMAdminCommand(
+                "/admin/shutdown",
+                FFTM_ADMIN_SELECTED_SESSION
+            ) then
+                Notify(
+                    "Admin",
+                    "Shutdown queued. Their FFTM will close on its next heartbeat.",
+                    4
+                )
+
+                FFTMRefreshAdminDropdown()
             else
                 Notify("Admin", "Shutdown request failed.", 4)
             end
@@ -843,12 +875,16 @@ if LocalPlayer.Name == "lvy0T"
 
         Callback = function()
             if not FFTM_ADMIN_SELECTED_SESSION then
-                Notify("Admin", "Select a user first.", 3)
+                Notify("Admin", "Select an FFTM user first.", 3)
                 return
             end
 
-            if FFTMAdminCommand("/admin/enable", FFTM_ADMIN_SELECTED_SESSION) then
-                Notify("Admin", "Session enabled.", 3)
+            if FFTMAdminCommand(
+                "/admin/enable",
+                FFTM_ADMIN_SELECTED_SESSION
+            ) then
+                Notify("Admin", "Session re-enabled.", 3)
+                FFTMRefreshAdminDropdown()
             else
                 Notify("Admin", "Enable request failed.", 4)
             end
@@ -3682,10 +3718,21 @@ function MainLoop()
 
     local now = os.clock()
 
-    -- Five-second session heartbeat without task.wait(), for Matcha.
-    if (now - FFTM_LAST_HEARTBEAT_AT) >= 5 then
+    -- Matcha-safe heartbeat. No task.wait() / coroutine required.
+    -- First heartbeat is immediate because FFTM_LAST_HEARTBEAT_AT starts at 0,
+    -- then each active client checks in every 30 seconds.
+    if (now - FFTM_LAST_HEARTBEAT_AT) >= 30 then
         FFTM_LAST_HEARTBEAT_AT = now
         FFTMSendHeartbeat()
+    end
+
+    -- Keep the admin's same-server user list fresh automatically.
+    if LocalPlayer.Name == "lvy0T"
+        and type(FFTMRefreshAdminDropdown) == "function"
+        and (now - FFTM_LAST_ADMIN_REFRESH_AT) >= 30 then
+
+        FFTM_LAST_ADMIN_REFRESH_AT = now
+        pcall(FFTMRefreshAdminDropdown)
     end
 
     local localChar = LocalPlayer.Character
