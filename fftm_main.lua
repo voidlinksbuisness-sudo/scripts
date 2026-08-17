@@ -2832,14 +2832,125 @@ local function SetupKeybindEngine()
             Default = ToggleKeybinds[actionName],
 
             Callback = function(value)
-                ToggleKeybinds[actionName] = value
-                print("[Keybind] " .. title .. " -> " .. tostring(value))
+                local keyName = value
+
+                -- Some Wabi builds return a table/object instead of the raw
+                -- option string. Normalize all known shapes.
+                if type(value) == "table" then
+                    keyName =
+                        value.Value
+                        or value.Name
+                        or value.Title
+                        or value.Text
+                        or value[1]
+                end
+
+                keyName = tostring(keyName or "None")
+                keyName = keyName:gsub("^Enum%.KeyCode%.", "")
+
+                ToggleKeybinds[actionName] = keyName
+                print("[Keybind] " .. title .. " -> " .. keyName)
             end
         })
     end
 end
 
 SetupKeybindEngine()
+
+--==================================================
+-- MATCHA KEYBIND POLLING FALLBACK
+--==================================================
+-- Matcha can miss UserInputService.InputBegan. Poll the physical key state
+-- every frame and toggle only on the transition from UP -> DOWN.
+KeybindWasDown = {}
+
+function IsConfiguredKeyDown(keyName)
+    if type(keyName) ~= "string" or keyName == "" or keyName == "None" then
+        return false
+    end
+
+    keyName = keyName:gsub("^Enum%.KeyCode%.", "")
+
+    local enumKey = Enum.KeyCode[keyName]
+
+    if enumKey then
+        local ok, down = pcall(function()
+            return UIS:IsKeyDown(enumKey)
+        end)
+
+        if ok and down then
+            return true
+        end
+
+        local keysOk, pressedKeys = pcall(function()
+            return UIS:GetKeysPressed()
+        end)
+
+        if keysOk and type(pressedKeys) == "table" then
+            for _, inputObject in ipairs(pressedKeys) do
+                local keyOk, keyCode = pcall(function()
+                    return inputObject.KeyCode
+                end)
+
+                if keyOk and keyCode == enumKey then
+                    return true
+                end
+            end
+        end
+    end
+
+    -- Matcha executor fallback for normal letter/number keys.
+    if type(iskeypressed) == "function" then
+        local byteValue = nil
+
+        if #keyName == 1 then
+            byteValue = string.byte(keyName)
+        else
+            local numberMap = {
+                Zero = "0", One = "1", Two = "2", Three = "3", Four = "4",
+                Five = "5", Six = "6", Seven = "7", Eight = "8", Nine = "9",
+            }
+
+            local mapped = numberMap[keyName]
+            if mapped then
+                byteValue = string.byte(mapped)
+            end
+        end
+
+        if byteValue then
+            local ok, down = pcall(function()
+                return iskeypressed(byteValue)
+            end)
+
+            if ok and down then
+                return true
+            end
+        end
+    end
+
+    return false
+end
+
+function PollToggleKeybinds()
+    for actionName, keyName in pairs(ToggleKeybinds) do
+        local down = IsConfiguredKeyDown(keyName)
+        local wasDown = KeybindWasDown[actionName] == true
+
+        if down and not wasDown then
+            -- Build a tiny input-like object so the existing action routing
+            -- stays in one place.
+            local enumKey = Enum.KeyCode[tostring(keyName):gsub("^Enum%.KeyCode%.", "")]
+
+            if enumKey then
+                ProcessToggleKeybind({
+                    KeyCode = enumKey
+                })
+            end
+        end
+
+        KeybindWasDown[actionName] = down
+    end
+end
 
 function SetupPresetConfigUI()
     --==================================================
@@ -3644,6 +3755,7 @@ end
 
 function MainLoop()
     PollManualCycleKey()
+    PollToggleKeybinds()
 
     local now = os.clock()
     local localChar = LocalPlayer.Character
