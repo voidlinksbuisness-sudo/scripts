@@ -1,4 +1,4 @@
--- FFTM_MAIN_BUILD = "2026-08-14-X-CONTEXTACTION-FIX-9"
+-- FFTM_MAIN_BUILD = "2026-08-14-X-CONTEXTACTION-FIX-7"
 --// WABI SABI UI
 loadstring(game:HttpGet("https://scripts.wabisabi.mom/wabi-sabi-ui-lib.lua"))()
 
@@ -511,8 +511,8 @@ end
 
 local AutoParryToggle      = NewValueControl(true)
 local AutoDodgeToggle      = NewValueControl(true)
-local AutoCounterToggle    = NewValueControl(false)
-local AutoAliCounterToggle = NewValueControl(false)
+AutoCounterToggle          = NewValueControl(false)
+AutoAliCounterToggle       = NewValueControl(false)
 local AutoTargetNearest    = NewValueControl(false)
 local MultiTarget          = NewValueControl(true)
 local HeightToggle         = NewValueControl(true)
@@ -1209,7 +1209,7 @@ local TargetSelectionState = {
     LastSelected = {},
 }
 
-local function FindPlayerForCharacter(character)
+function FindPlayerForCharacter(character)
     if not character then
         return nil
     end
@@ -1235,7 +1235,7 @@ local function FindPlayerForCharacter(character)
     return nil
 end
 
-local function GetCharacterWhitelistKey(character)
+function GetCharacterWhitelistKey(character)
     if not character then
         return nil
     end
@@ -1249,7 +1249,7 @@ local function GetCharacterWhitelistKey(character)
     return "name:" .. tostring(character.Name)
 end
 
-local function GetCharacterDisplayName(character)
+function GetCharacterDisplayName(character)
     if not character then
         return "Unknown"
     end
@@ -1267,12 +1267,12 @@ local function GetCharacterDisplayName(character)
     return character.Name
 end
 
-local function IsCharacterWhitelisted(character)
+function IsCharacterWhitelisted(character)
     local key = GetCharacterWhitelistKey(character)
     return key ~= nil and TargetSelectionState.Whitelist[key] == true
 end
 
-local function SetCharacterWhitelisted(character, enabled)
+function SetCharacterWhitelisted(character, enabled)
     local key = GetCharacterWhitelistKey(character)
 
     if not key then
@@ -1288,7 +1288,7 @@ local function SetCharacterWhitelisted(character, enabled)
     return true
 end
 
-local function ClearSelectedMarkers()
+function ClearSelectedMarkers()
     for character, markerText in pairs(TargetSelectionState.Markers) do
         if markerText then
             pcall(function()
@@ -1304,7 +1304,7 @@ local function ClearSelectedMarkers()
     end
 end
 
-local function AddSelectedMarker(character)
+function AddSelectedMarker(character)
     if not character then
         return
     end
@@ -1322,7 +1322,7 @@ local function AddSelectedMarker(character)
     TargetSelectionState.Markers[character] = markerText
 end
 
-local function UpdateSelectedMarkers()
+function UpdateSelectedMarkers()
     for character, markerText in pairs(TargetSelectionState.Markers) do
         local visible = false
 
@@ -1348,7 +1348,7 @@ local function UpdateSelectedMarkers()
     end
 end
 
-local function CopyWhitelist()
+function CopyWhitelist()
     local copy = {}
 
     for key, enabled in pairs(TargetSelectionState.Whitelist) do
@@ -1360,7 +1360,7 @@ local function CopyWhitelist()
     return copy
 end
 
-local function ApplyWhitelist(saved)
+function ApplyWhitelist(saved)
     table.clear(TargetSelectionState.Whitelist)
 
     if type(saved) ~= "table" then
@@ -1387,7 +1387,7 @@ local LastPendingRegData = nil
 local InputRegisteredTime = nil
 local TimeBetweenPressingFandParrying = nil
 
-local InputRegisteredTime = nil
+InputRegisteredTime = nil
 local ParryRegisteredTime = nil
 local InputLatency = 0 -- (Parry - Input)
 
@@ -1502,14 +1502,14 @@ function Dodge()
     --  mouse2click()    
 end
 
-local MoveKeys = {
+MoveKeys = {
     W = string.byte("W"),
     A = string.byte("A"),
     S = string.byte("S"),
     D = string.byte("D"),
 }
 
-local function GetMoveKeyTowardTarget(targetCharacter)
+function GetMoveKeyTowardTarget(targetCharacter)
     local localCharacter = LocalPlayer.Character
     local localRoot = localCharacter and localCharacter:FindFirstChild("HumanoidRootPart")
     local targetRoot = targetCharacter and targetCharacter:FindFirstChild("HumanoidRootPart")
@@ -1542,9 +1542,9 @@ local function GetMoveKeyTowardTarget(targetCharacter)
     end
 end
 
-local AliInjectedMoveKey = nil
+AliInjectedMoveKey = nil
 
-local function ReleaseAliMoveKey()
+function ReleaseAliMoveKey()
     if AliInjectedMoveKey then
         pcall(function()
             keyrelease(AliInjectedMoveKey)
@@ -1554,7 +1554,7 @@ local function ReleaseAliMoveKey()
     end
 end
 
-local function AliDodgeIntoTarget(targetCharacter)
+function AliDodgeIntoTarget(targetCharacter)
     BlockEnd()
 
     -- Clean up a previous Ali counter first so a direction can never remain held.
@@ -2479,13 +2479,13 @@ end
 -- PER-ANIMATION TIMING CONTROLS
 --==================================================
 
-local function _sanitizeTimingId(value)
+function _sanitizeTimingId(value)
     return tostring(value)
         :gsub("rbxassetid://", "")
         :gsub("[^%w_]", "_")
 end
 
-local function BuildTimingControls()
+function BuildTimingControls()
     local grouped = {}
 
     for animationId, info in pairs(GameConfig or {}) do
@@ -2831,7 +2831,7 @@ end
 
 SetupKeybindEngine()
 
-local function SetupPresetConfigUI()
+function SetupPresetConfigUI()
     --==================================================
     -- CONFIG / PERSISTENT LOCAL PROFILES
     --==================================================
@@ -3367,7 +3367,7 @@ end
 
 SetupPresetConfigUI()
 
-local function SetupTargetFolderUI()
+function SetupTargetFolderUI()
     SafeAddButton(TargetingTab, {
         Title = "Cycle Target Now",
 
@@ -3472,7 +3472,7 @@ end
 
 SetupTargetFolderUI()
 
-local function SetupManualTargetContextAction()
+function SetupManualTargetContextAction()
     local ok, err = pcall(function()
         ContextActionService:UnbindAction("FFTM_ManualTargetCycle")
 
@@ -3571,7 +3571,7 @@ local LastCycleCheck = 0
 
 local ManualCycleKeyWasDown = false
 
-local function IsManualCycleKeyDown()
+function IsManualCycleKeyDown()
     local down = false
 
     -- Preferred: normal Roblox physical-key polling.
@@ -3614,7 +3614,7 @@ local function IsManualCycleKeyDown()
     return false
 end
 
-local function PollManualCycleKey()
+function PollManualCycleKey()
     local down = IsManualCycleKeyDown()
 
     if down and not ManualCycleKeyWasDown then
