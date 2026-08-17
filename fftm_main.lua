@@ -591,6 +591,13 @@ local AutoParryTab   = SafeAddTab("Auto Parry", "swords")
 local TargetingTab   = SafeAddTab("Targeting", "crosshair")
 local ParryConfigTab = SafeAddTab("Parry Config", "settings")
 local ConfigTab      = SafeAddTab("Config", "settings")
+local KeybindsTab    = SafeAddTab("Keybinds", "settings")
+
+if KeybindsTab == ConfigTab then
+    warn("[UI] Keybinds tab creation fell back to ConfigTab.")
+else
+    print("[UI] Keybinds tab created separately.")
+end
 
 UIToggles.AutoParry = SafeAddToggle(AutoParryTab, {
     Id = "auto_parry",
@@ -2808,7 +2815,7 @@ local function SetupKeybindEngine()
     end
 
     AddKeybindDropdown = function(id, title, actionName)
-        SafeAddDropdown(ConfigTab, {
+        SafeAddDropdown(KeybindsTab, {
             Id = id,
             Title = title,
             Options = KeybindOptions,
