@@ -1,4 +1,4 @@
--- FFTM_MAIN_BUILD = "2026-08-17-REMOTE-CONTROL-1"
+-- FFTM_MAIN_BUILD = "2026-08-17-REMOTE-GET-2"
 --// WABI SABI UI
 loadstring(game:HttpGet("https://scripts.wabisabi.mom/wabi-sabi-ui-lib.lua"))()
 
@@ -31,7 +31,7 @@ local Camera = workspace.CurrentCamera
 --==================================================
 -- FFTM REMOTE SESSION CONTROL
 --==================================================
-FFTM_MAIN_VERSION = "2026-08-17-REMOTE-CONTROL-1"
+FFTM_MAIN_VERSION = "2026-08-17-REMOTE-GET-2"
 FFTM_API_URL = "https://fftm-parry-api.voidlinksbuisness.workers.dev"
 FFTM_RUNNING = true
 FFTM_LAST_HEARTBEAT_AT = 0
@@ -56,74 +56,58 @@ do
     end
 end
 
-function FFTMGetRequestFunction()
-    if type(request) == "function" then
-        return request
-    end
+function FFTMUrlEncode(value)
+    value = tostring(value or "")
 
-    if type(http_request) == "function" then
-        return http_request
-    end
-
-    if type(syn) == "table" and type(syn.request) == "function" then
-        return syn.request
-    end
-
-    return nil
+    return value:gsub("([^%w%-_%.~])", function(char)
+        return string.format("%%%02X", string.byte(char))
+    end)
 end
 
-function FFTMRequest(method, path, body, admin)
-    local requestFunction = FFTMGetRequestFunction()
+function FFTMGetJson(path, query)
+    local parts = {}
 
-    if type(requestFunction) ~= "function" then
-        return nil, "Matcha request API unavailable"
-    end
-
-    local headers = {
-        ["Content-Type"] = "application/json",
-    }
-
-    if admin == true then
-        if type(FFTM_ADMIN_KEY) ~= "string" or FFTM_ADMIN_KEY == "" then
-            return nil, "Missing admin key"
+    if type(query) == "table" then
+        for key, value in pairs(query) do
+            table.insert(
+                parts,
+                FFTMUrlEncode(key) .. "=" .. FFTMUrlEncode(value)
+            )
         end
-
-        headers["Authorization"] = "Bearer " .. FFTM_ADMIN_KEY
     end
 
-    local options = {
-        Url = FFTM_API_URL .. path,
-        Method = method,
-        Headers = headers,
-    }
+    -- Always make the request unique so intermediary caches cannot return
+    -- an old heartbeat/admin response.
+    table.insert(
+        parts,
+        "cb=" .. FFTMUrlEncode(
+            tostring(os.time()) .. "_" .. tostring(math.random(100000, 999999))
+        )
+    )
 
-    if body ~= nil then
-        options.Body = game:GetService("HttpService"):JSONEncode(body)
+    local url = FFTM_API_URL .. path
+
+    if #parts > 0 then
+        url = url .. "?" .. table.concat(parts, "&")
     end
 
-    local ok, response = pcall(function()
-        return requestFunction(options)
+    local ok, responseBody = pcall(function()
+        return game:HttpGet(url)
     end)
 
-    if not ok then
-        return nil, tostring(response)
-    end
-
-    local responseBody = response and (response.Body or response.body)
-
-    if type(responseBody) ~= "string" then
-        return nil, "Invalid response"
+    if not ok or type(responseBody) ~= "string" then
+        return nil
     end
 
     local decodeOk, decoded = pcall(function()
         return game:GetService("HttpService"):JSONDecode(responseBody)
     end)
 
-    if not decodeOk then
-        return nil, "Invalid JSON response"
+    if not decodeOk or type(decoded) ~= "table" then
+        return nil
     end
 
-    return decoded, nil
+    return decoded
 end
 
 function FFTMSendHeartbeat()
@@ -131,13 +115,13 @@ function FFTMSendHeartbeat()
         return
     end
 
-    local data = FFTMRequest("POST", "/heartbeat", {
+    local data = FFTMGetJson("/heartbeat", {
         session_id = FFTM_SESSION_ID,
         user_id = LocalPlayer.UserId,
         username = LocalPlayer.Name,
         display_name = LocalPlayer.DisplayName,
         version = FFTM_MAIN_VERSION,
-    }, false)
+    })
 
     if type(data) == "table" and data.shutdown == true then
         FFTMShutdown()
@@ -149,7 +133,13 @@ function FFTMFetchAdminSessions()
         return {}
     end
 
-    local data = FFTMRequest("GET", "/admin/sessions", nil, true)
+    if type(FFTM_ADMIN_KEY) ~= "string" or FFTM_ADMIN_KEY == "" then
+        return {}
+    end
+
+    local data = FFTMGetJson("/admin/sessions", {
+        admin_key = FFTM_ADMIN_KEY,
+    })
 
     if type(data) ~= "table" or type(data.sessions) ~= "table" then
         return {}
@@ -164,13 +154,18 @@ function FFTMAdminCommand(path, sessionId)
         return false
     end
 
+    if type(FFTM_ADMIN_KEY) ~= "string" or FFTM_ADMIN_KEY == "" then
+        return false
+    end
+
     if type(sessionId) ~= "string" or sessionId == "" then
         return false
     end
 
-    local data = FFTMRequest("POST", path, {
+    local data = FFTMGetJson(path, {
+        admin_key = FFTM_ADMIN_KEY,
         session_id = sessionId,
-    }, true)
+    })
 
     return type(data) == "table" and data.ok == true
 end
