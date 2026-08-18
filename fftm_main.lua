@@ -1,4 +1,4 @@
--- FFTM_MAIN_BUILD = "2026-08-17-LATEST-SESSION-ONLY-7"
+-- FFTM_MAIN_BUILD = "2026-08-17-COUNTER-ID-ONLY-8"
 --// WABI SABI UI
 loadstring(game:HttpGet("https://scripts.wabisabi.mom/wabi-sabi-ui-lib.lua"))()
 
@@ -31,7 +31,7 @@ local Camera = workspace.CurrentCamera
 --==================================================
 -- FFTM REMOTE SESSION CONTROL
 --==================================================
-FFTM_MAIN_VERSION = "2026-08-17-LATEST-SESSION-ONLY-7"
+FFTM_MAIN_VERSION = "2026-08-17-COUNTER-ID-ONLY-8"
 FFTM_API_URL = "https://fftm-parry-api.voidlinksbuisness.workers.dev"
 FFTM_RUNNING = true
 FFTM_LAST_HEARTBEAT_AT = -1000000
@@ -1149,6 +1149,28 @@ for styleName, assets in pairs(GameConfig) do
 end
 
 GameConfig = FlattenedConfig
+
+--==================================================
+-- COUNTER ANIMATION IDS
+--==================================================
+-- Auto Counter / Auto Ali Counter trigger ONLY from these exact configured
+-- animation IDs. ReactionTime, ParryOffset, ping compensation and parry
+-- windows are not used for counter activation.
+CounterAnimationIds = {}
+
+for animationId, info in pairs(GameConfig) do
+    if type(info) == "table" then
+        local displayName = tostring(info.DisplayName or "")
+        local isCounterAnimation =
+            displayName == "Heavy"
+            or string.find(displayName, "M2", 1, true) ~= nil
+            or info.Heavy == true
+
+        if isCounterAnimation then
+            CounterAnimationIds[tostring(animationId)] = true
+        end
+    end
+end
 
 local AnimationIdSliders = {}
 
@@ -2570,22 +2592,82 @@ end
 local function EvaluateAnimation(anim, character, localCharacter, localRoot, targetRoot, currentActiveIds)
     -- ANIMATION VALIDATION
     if not anim.AnimationId then return end
-    local attackConfig = GameConfig[tostring(anim.AnimationId)]
+
+    local animationId = tostring(anim.AnimationId)
+    local attackConfig = GameConfig[animationId]
     if not attackConfig then return end
-    
+
     local animKey = anim.Address or anim
     currentActiveIds[animKey] = true
-    
+
     -- ANIMATION REGISTRY & STATE
     local now = os.clock()
-    local regData = UpdateAnimationRegistry(animKey, anim, now, anim.TimePosition or 0, attackConfig, character)
+    local regData = UpdateAnimationRegistry(
+        animKey,
+        anim,
+        now,
+        anim.TimePosition or 0,
+        attackConfig,
+        character
+    )
+
     if regData.Processed then return end
 
-    if CheckCharacterDistance(localRoot, targetRoot) > AutoParryRange then return end
-    
-    -- PARRY FUNCTION OVERRIDE
-    -- Auto Counter takes priority for M2/heavy attacks, including attacks that
-    -- normally have a custom ParryFunction.
+    if CheckCharacterDistance(localRoot, targetRoot) > AutoParryRange then
+        return
+    end
+
+    --==================================================
+    -- COUNTERS: EXACT ANIMATION ID ONLY
+    --==================================================
+    -- No ReactionTime / BlockStart / BlockExpire / ping compensation /
+    -- ParryOffset / probability timing is consulted here.
+    if CounterAnimationIds[animationId] == true
+        and (AutoAliCounterToggle.Get() or AutoCounterToggle.Get()) then
+
+        if not CheckAnimationDirection(
+            character,
+            localCharacter,
+            localRoot,
+            targetRoot,
+            attackConfig
+        ) then
+            return
+        end
+
+        -- One counter per animation instance.
+        regData.Processed = true
+        regData.LastExecuteTime = now
+
+        if AutoAliCounterToggle.Get() then
+            AliDodgeIntoTarget(character)
+
+            print(string.format(
+                "Ali Counter ID triggered [%s | %s | %s]",
+                tostring(attackConfig.Style),
+                tostring(attackConfig.DisplayName),
+                animationId
+            ))
+        elseif AutoCounterToggle.Get() then
+            -- Use NOW instead of regData.BlockStart so reaction timings
+            -- cannot delay the R counter.
+            Counter(now)
+
+            print(string.format(
+                "Counter ID triggered [%s | %s | %s]",
+                tostring(attackConfig.Style),
+                tostring(attackConfig.DisplayName),
+                animationId
+            ))
+        end
+
+        return
+    end
+
+    --==================================================
+    -- NORMAL AUTO PARRY PATH
+    --==================================================
+    -- Normal parrying continues to use configured reaction timing.
     local displayName = tostring(attackConfig.DisplayName or "")
     local isHeavy =
         displayName == "Heavy"
@@ -2594,34 +2676,40 @@ local function EvaluateAnimation(anim, character, localCharacter, localRoot, tar
 
     if attackConfig.ParryFunction
         and not (isHeavy and (AutoCounterToggle.Get() or AutoAliCounterToggle.Get()))
-        and (now - regData.StartTime) <= (attackConfig.ReactionTime or DefaultReactionTime) + ParryWindow/2 then
-        if AutoParryToggle.Get() then  
-           attackConfig.ParryFunction({
-               RegistryData = regData,
-               Mob = character,
-               AnimationData = anim,
-               AnimationTracker = AnimationTracker,
-           }) 
+        and (now - regData.StartTime)
+            <= (attackConfig.ReactionTime or DefaultReactionTime) + ParryWindow / 2 then
+
+        if AutoParryToggle.Get() then
+            attackConfig.ParryFunction({
+                RegistryData = regData,
+                Mob = character,
+                AnimationData = anim,
+                AnimationTracker = AnimationTracker,
+            })
         end
+
         return
     end
-    
-    -- DIRECTION CHECKS
-    if not CheckAnimationDirection(character, localCharacter, localRoot, targetRoot, attackConfig) then return end
-    
+
+    if not CheckAnimationDirection(
+        character,
+        localCharacter,
+        localRoot,
+        targetRoot,
+        attackConfig
+    ) then
+        return
+    end
+
     if regData.RandomNum > ProbabilityToParry then
         regData.Processed = true
---        print("Skip b/c PTP", RandomNum, ProbabilityToParry)
         return
     end
-    
-    -- PARRY EXECUTION
+
     local BlockExpireTimer = regData.BlockExpire - now
-    
+
     if now >= regData.BlockStart and BlockExpireTimer >= 0 then
-    --    if not LastPendingRegData or LastPendingRegData.Proc then
-            ExecuteParry(regData, attackConfig, character)
-    --    end
+        ExecuteParry(regData, attackConfig, character)
     end
 end
 
