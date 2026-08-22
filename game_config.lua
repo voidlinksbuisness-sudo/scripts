@@ -446,8 +446,8 @@ local GameConfig = {
                 task.spawn(function()
                     showWarningImage()
                     task.wait(3)
-                    local dis = game:GetService("Players").LocalPlayer.Character:FindFirstChild("HumanoidRootPart").Position
-                    print(data)
+					local PLAYERS = game:GetService("Players")
+                    local dis = (PLAYERS.LocalPlayer.Character:FindFirstChild("HumanoidRootPart").Position - data.Mob.HumanoidRootPart.Position).Magnitude
                 end)
             end,
         },
