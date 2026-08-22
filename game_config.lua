@@ -1,5 +1,10 @@
 -- Game-specific animation timing/configuration table.
 -- Loaded by fftm_main.lua.
+
+local function getTravelTime(distance, speed)
+	return distance / speed
+end
+
 local function showWarningImage()
     local viewport = workspace.CurrentCamera.ViewportSize
 
@@ -440,6 +445,9 @@ local GameConfig = {
                 data.RegistryData.Processed = true
                 task.spawn(function()
                     showWarningImage()
+                    task.wait(3)
+                    local dis = game:GetService("Players").LocalPlayer.Character:FindFirstChild("HumanoidRootPart").Position
+                    print(data)
                 end)
             end,
         },
