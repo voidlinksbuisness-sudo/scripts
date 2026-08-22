@@ -116,15 +116,15 @@ local GameConfig = {
     ["BoxingAnims"] = {
         ["rbxassetid://137980914350618"] = {
             DisplayName = "1stM1",
-            ReactionTime = 0.17,
+            ReactionTime = 0.125,
         },
         ["rbxassetid://100408082509740"] = {
             DisplayName = "2ndM1",
-            ReactionTime = 0.17,
+            ReactionTime = 0.106,
         },
         ["rbxassetid://94803478352691"] = {
             DisplayName = "3rdM1",
-            ReactionTime = 0.17,
+            ReactionTime = 0.13,
             
         },
         ["rbxassetid://78695517680318"] = {
