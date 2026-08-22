@@ -364,6 +364,28 @@ local GameConfig = {
             ReactionTime = 0.24
         },
     },
+     ["CQC"] = {
+        ["rbxassetid://0"] = {
+            DisplayName = "M2",
+            ["ReactionTime"] = 0.25,
+        },
+        ["rbxassetid://139153666059747"] = {
+            DisplayName = "1stM1",
+            ReactionTime = 0.1
+        },
+        ["rbxassetid://96433631480947"] = {
+            DisplayName = "2ndM1",
+            ReactionTime = 0.1
+        },
+        ["rbxassetid://119132409702905"] = {
+            DisplayName = "3rdM1",
+            ReactionTime = 0.05
+        },
+        ["rbxassetid://135110210666200"] = {
+            DisplayName = "4thM1",
+            ReactionTime = 0.1
+        },
+    },
     ["Debug"] = {
         ["http://www.roblox.com/asset/?id=125750702"] = {
             DisplayName = "M1",
