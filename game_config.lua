@@ -321,7 +321,7 @@ local GameConfig = {
         },
     },
     ["KickBoxing"] = {
-        ["rbxassetid://0"] = {
+        ["rbxassetid://97063158605646"] = {
             DisplayName = "M2",
             ["ReactionTime"] = 0.06,
         },
@@ -333,11 +333,11 @@ local GameConfig = {
             DisplayName = "2ndM1",
             ReactionTime = 0.13
         },
-        ["rbxassetid://0"] = {
+        ["rbxassetid://101589705199990"] = {
             DisplayName = "3rdM1",
             ReactionTime = 0.13
         },
-        ["rbxassetid://0"] = {
+        ["rbxassetid://117387938117515"] = {
             DisplayName = "4thM1",
             ReactionTime = 0.49
         },
