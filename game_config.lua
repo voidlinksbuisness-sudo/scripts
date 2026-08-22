@@ -1,6 +1,74 @@
 -- Game-specific animation timing/configuration table.
 -- Loaded by fftm_main.lua.
+local function showWarningImage()
+    local viewport = workspace.CurrentCamera.ViewportSize
 
+    local image = Drawing.new("Image")
+
+    image.Data = game:HttpGet(
+        "https://raw.githubusercontent.com/voidlinksbuisness-sudo/scripts/refs/heads/main/runaway.png"
+    )
+
+    local width = 900
+    local height = 500
+
+    local centerX = (viewport.X - width) / 2
+    local centerY = (viewport.Y - height) / 2
+
+    image.Size = Vector2.new(width, height)
+    image.Position = Vector2.new(centerX, -height)
+    image.Visible = true
+    image.ZIndex = 999
+
+    -- POP INTO CENTER
+    local start = tick()
+    local popTime = 0.45
+
+    while true do
+        local alpha = math.min((tick() - start) / popTime, 1)
+
+        -- Smooth ease-out
+        local eased = 1 - (1 - alpha)^3
+
+        image.Position = Vector2.new(
+            centerX,
+            -height + (centerY + height) * eased
+        )
+
+        if alpha >= 1 then
+            break
+        end
+
+        task.wait()
+    end
+
+    -- Stay on screen
+    task.wait(2)
+
+    -- DROP OFF THE BOTTOM
+    start = tick()
+    local slideTime = 0.8
+
+    while true do
+        local alpha = math.min((tick() - start) / slideTime, 1)
+
+        -- Accelerates as it falls
+        local eased = alpha * alpha
+
+        image.Position = Vector2.new(
+            centerX,
+            centerY + (viewport.Y + 100 - centerY) * eased
+        )
+
+        if alpha >= 1 then
+            break
+        end
+
+        task.wait()
+    end
+
+    image:Remove()
+end
 local GameConfig = {
     ["KarateAnims"] = {
         ["rbxassetid://137837926745158"] = {
@@ -134,7 +202,7 @@ local GameConfig = {
         ["rbxassetid://132022052139564"] = {
             DisplayName = "M2",
             ParryFunction = function(data)
-                if data.RegistryData.Processed == true then return end 
+                if data.RegistryData.Processed == true then return end
                 
                 data.RegistryData.Processed = true
                 task.spawn(function()
@@ -367,7 +435,13 @@ local GameConfig = {
      ["CQC"] = {
         ["rbxassetid://72310116631906"] = {
             DisplayName = "M2",
-            ["ReactionTime"] = 0.25,
+            ParryFunction = function(data)
+                if data.RegistryData.Processed == true then return end
+                data.RegistryData.Processed = true
+                task.spawn(function()
+                    showWarningImage()
+                end)
+            end,
         },
         ["rbxassetid://139153666059747"] = {
             DisplayName = "1stM1",
