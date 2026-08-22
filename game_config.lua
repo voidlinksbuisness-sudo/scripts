@@ -345,7 +345,7 @@ local GameConfig = {
     ["Kyokushin"] = {
         ["rbxassetid://129982299748710"] = {
             DisplayName = "M2",
-            ["ReactionTime"] = 0.06,
+            ["ReactionTime"] = 0.25,
         },
         ["rbxassetid://107487621377655"] = {
             DisplayName = "1stM1",
@@ -357,11 +357,11 @@ local GameConfig = {
         },
         ["rbxassetid://110289714004386"] = {
             DisplayName = "3rdM1",
-            ReactionTime = 0.2
+            ReactionTime = 0.14
         },
         ["rbxassetid://91198472406870"] = {
             DisplayName = "4thM1",
-            ReactionTime = 0.2
+            ReactionTime = 0.24
         },
     },
     ["Debug"] = {
