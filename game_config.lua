@@ -320,6 +320,28 @@ local GameConfig = {
             DisplayName = "M2"
         },
     },
+    ["KickBoxing"] = {
+        ["rbxassetid://0"] = {
+            DisplayName = "M2",
+            ["ReactionTime"] = 0.06,
+        },
+        ["rbxassetid://98742118383189"] = {
+            DisplayName = "1stM1",
+            ReactionTime = 0.13
+        },
+        ["rbxassetid://110253681993213"] = {
+            DisplayName = "2ndM1",
+            ReactionTime = 0.13
+        },
+        ["rbxassetid://0"] = {
+            DisplayName = "3rdM1",
+            ReactionTime = 0.13
+        },
+        ["rbxassetid://0"] = {
+            DisplayName = "4thM1",
+            ReactionTime = 0.49
+        },
+    },
     ["Debug"] = {
         ["http://www.roblox.com/asset/?id=125750702"] = {
             DisplayName = "M1",
