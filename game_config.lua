@@ -342,6 +342,28 @@ local GameConfig = {
             ReactionTime = 0.25
         },
     },
+    ["Kyokushin"] = {
+        ["rbxassetid://129982299748710"] = {
+            DisplayName = "M2",
+            ["ReactionTime"] = 0.06,
+        },
+        ["rbxassetid://107487621377655"] = {
+            DisplayName = "1stM1",
+            ReactionTime = 0.1
+        },
+        ["rbxassetid://109241234618849"] = {
+            DisplayName = "2ndM1",
+            ReactionTime = 0.1
+        },
+        ["rbxassetid://110289714004386"] = {
+            DisplayName = "3rdM1",
+            ReactionTime = 0.2
+        },
+        ["rbxassetid://91198472406870"] = {
+            DisplayName = "4thM1",
+            ReactionTime = 0.2
+        },
+    },
     ["Debug"] = {
         ["http://www.roblox.com/asset/?id=125750702"] = {
             DisplayName = "M1",
