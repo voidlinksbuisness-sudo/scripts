@@ -365,7 +365,7 @@ local GameConfig = {
         },
     },
      ["CQC"] = {
-        ["rbxassetid://0"] = {
+        ["rbxassetid://72310116631906"] = {
             DisplayName = "M2",
             ["ReactionTime"] = 0.25,
         },
