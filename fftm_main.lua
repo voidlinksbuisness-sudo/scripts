@@ -229,7 +229,11 @@ local state = {
 
     PlayerHealth = false,
     SelfHealth = false,
+
+    PlayerHealthDistance = 50,
+    PlayerHealthDistanceSquared = 50 * 50,
 }
+
 
 --// PLAYER HELPERS
 local function getRoot(player)
@@ -641,7 +645,20 @@ UIToggles.PlayerHealth = Main:AddToggle({
     end
 })
 
---// SELF HEALTH
+Main:AddSlider({
+    Id = "player_health_distance",
+    Title = "Health ESP Distance",
+    Min = 10,
+    Max = 500,
+    Default = 50,
+
+    Callback = function(value)
+        value = tonumber(value) or 50
+
+        state.PlayerHealthDistance = value
+        state.PlayerHealthDistanceSquared = value * value
+    end
+})
 
 UIToggles.SelfHealth = Main:AddToggle({
     Id = "self_health",
@@ -653,6 +670,7 @@ UIToggles.SelfHealth = Main:AddToggle({
         print("Self Health:", value)
     end
 })
+
 
 --==================================================
 -- GAKURAN DEPENDENCY / STATE BRIDGE
