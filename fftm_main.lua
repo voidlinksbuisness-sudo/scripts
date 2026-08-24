@@ -1,4 +1,4 @@
--- FFTM_MAIN_BUILD = "2026-08-24-ESP-DISTANCE-1"
+-- FFTM_MAIN_BUILD = "2026-08-24-CONFIG-UI-SYNC-1"
 --// WABI SABI UI
 loadstring(game:HttpGet("https://scripts.wabisabi.mom/wabi-sabi-ui-lib.lua"))()
 
@@ -30,7 +30,7 @@ local Camera = workspace.CurrentCamera
 --==================================================
 -- FFTM REMOTE SESSION CONTROL
 --==================================================
-FFTM_MAIN_VERSION = "2026-08-24-ESP-DISTANCE-1"
+FFTM_MAIN_VERSION = "2026-08-24-CONFIG-UI-SYNC-1"
 FFTM_API_URL = "https://fftm-parry-api.voidlinksbuisness.workers.dev"
 FFTM_RUNNING = true
 FFTM_LAST_HEARTBEAT_AT = -1000000
@@ -669,7 +669,7 @@ UIToggles.Tracers = Main:AddToggle({
     end
 })
 
-Main:AddSlider({
+local TracerTransparencySlider = Main:AddSlider({
     Id = "tracer_transparency",
     Title = "Tracer Transparency",
     Min = 0,
@@ -713,7 +713,7 @@ UIToggles.PlayerHealth = Main:AddToggle({
     end
 })
 
-Main:AddSlider({
+local HealthESPDistanceSlider = Main:AddSlider({
     Id = "player_health_distance",
     Title = "Health ESP Distance",
     Min = 10,
@@ -3065,7 +3065,7 @@ BuildTimingControls()
 -- WABI CONTROLS FOR GAKURAN RUNTIME VALUES
 --==================================================
 
-SafeAddSlider(ParryConfigTab, {
+local AutoParryRangeSlider = SafeAddSlider(ParryConfigTab, {
     Id = "auto_parry_range",
     Title = "Auto Parry Range",
     Min = 1,
@@ -3076,7 +3076,7 @@ SafeAddSlider(ParryConfigTab, {
     end
 })
 
-SafeAddSlider(ParryConfigTab, {
+local ProbabilityToParrySlider = SafeAddSlider(ParryConfigTab, {
     Id = "probability_to_parry",
     Title = "Probability To Parry",
     Min = 1,
@@ -3087,7 +3087,7 @@ SafeAddSlider(ParryConfigTab, {
     end
 })
 
-SafeAddSlider(ParryConfigTab, {
+local ParryOffsetSlider = SafeAddSlider(ParryConfigTab, {
     Id = "parry_offset_ms",
     Title = "Parry Offset (ms)",
     Min = -100,
@@ -3098,7 +3098,7 @@ SafeAddSlider(ParryConfigTab, {
     end
 })
 
-SafeAddSlider(ParryConfigTab, {
+local ParryWindowSlider = SafeAddSlider(ParryConfigTab, {
     Id = "parry_window_ms",
     Title = "Parry Window (ms)",
     Min = 0,
@@ -3109,7 +3109,7 @@ SafeAddSlider(ParryConfigTab, {
     end
 })
 
-SafeAddSlider(TargetingTab, {
+local MaxCycleRangeSlider = SafeAddSlider(TargetingTab, {
     Id = "max_cycle_range",
     Title = "Max Cycle Range",
     Min = 7,
@@ -3138,20 +3138,25 @@ local function ToggleMenuVisibility()
     Notify("Keybinds", "Could not locate the menu UI.", 3)
 end
 
-local function SyncUIToggle(toggleName, value)
-    local control = UIToggles[toggleName]
+local function SyncUIControl(control, value)
     if not control then
-        return
+        return false
     end
 
-    for _, methodName in ipairs({ "Set", "SetValue", "SetState" }) do
+    for _, methodName in ipairs({ "SetValue", "Set", "SetState" }) do
         if type(control[methodName]) == "function" then
-            pcall(function()
+            local ok = pcall(function()
                 control[methodName](control, value)
             end)
-            return
+            return ok
         end
     end
+
+    return false
+end
+
+local function SyncUIToggle(toggleName, value)
+    return SyncUIControl(UIToggles[toggleName], value)
 end
 
 local function RegisterActionKeybind(id, title, defaultKeyCode, action)
@@ -3534,6 +3539,7 @@ function SetupPresetConfigUI()
                 TracerTransparency = state.TracerTransparency,
                 ESPDistance = state.ESPDistance,
                 PlayerHealth = state.PlayerHealth,
+                PlayerHealthDistance = state.PlayerHealthDistance,
                 SelfHealth = state.SelfHealth,
             },
 
@@ -3590,13 +3596,21 @@ function SetupPresetConfigUI()
                     AnimationIdSliders[animationId]
                     or AnimationIdSliders[tonumber(animationId)]
 
-                if slider ~= nil and type(slider.Set) == "function" then
-                    pcall(function()
-                        slider:Set(math.floor(seconds * 1000 + 0.5))
-                    end)
-                end
+                SyncUIControl(
+                    slider,
+                    math.floor(seconds * 1000 + 0.5)
+                )
             end
         end
+    end
+
+    local function ApplyToggleControl(toggleName, value, setter)
+        if type(value) ~= "boolean" then
+            return
+        end
+
+        setter(value)
+        SyncUIToggle(toggleName, value)
     end
 
     local function ApplyConfig(config)
@@ -3607,96 +3621,97 @@ function SetupPresetConfigUI()
         local visuals = config.Visuals
 
         if type(visuals) == "table" then
-            if type(visuals.ESP) == "boolean" then
-                state.ESP = visuals.ESP
-            end
-            if type(visuals.Tracers) == "boolean" then
-                state.Tracers = visuals.Tracers
-            end
+            ApplyToggleControl("ESP", visuals.ESP, function(value)
+                state.ESP = value
+            end)
+            ApplyToggleControl("Tracers", visuals.Tracers, function(value)
+                state.Tracers = value
+            end)
+
             if type(visuals.TracerTransparency) == "number" then
-                state.TracerTransparency = visuals.TracerTransparency
+                local transparency = math.clamp(visuals.TracerTransparency, 0, 100)
+                state.TracerTransparency = transparency
+                SyncUIControl(TracerTransparencySlider, transparency)
             end
+
             if type(visuals.ESPDistance) == "number" then
                 local distance = math.clamp(visuals.ESPDistance, 10, 500)
                 state.ESPDistance = distance
                 state.ESPDistanceSquared = distance * distance
                 _G.ESPMaxDistance = distance
                 _G.ESPMaxDistanceSquared = state.ESPDistanceSquared
+                SyncUIControl(ESPDistanceSlider, distance)
+            end
 
-                if ESPDistanceSlider
-                    and type(ESPDistanceSlider.SetValue) == "function" then
+            ApplyToggleControl("PlayerHealth", visuals.PlayerHealth, function(value)
+                state.PlayerHealth = value
+            end)
 
-                    pcall(function()
-                        ESPDistanceSlider:SetValue(distance)
-                    end)
-                end
+            if type(visuals.PlayerHealthDistance) == "number" then
+                local distance = math.clamp(visuals.PlayerHealthDistance, 10, 500)
+                state.PlayerHealthDistance = distance
+                state.PlayerHealthDistanceSquared = distance * distance
+                _G.HealthESPMaxDistance = distance
+                _G.HealthESPMaxDistanceSquared = state.PlayerHealthDistanceSquared
+                SyncUIControl(HealthESPDistanceSlider, distance)
             end
-            if type(visuals.PlayerHealth) == "boolean" then
-                state.PlayerHealth = visuals.PlayerHealth
-            end
-            if type(visuals.SelfHealth) == "boolean" then
-                state.SelfHealth = visuals.SelfHealth
-            end
+
+            ApplyToggleControl("SelfHealth", visuals.SelfHealth, function(value)
+                state.SelfHealth = value
+            end)
         end
 
         local combat = config.Combat
 
         if type(combat) == "table" then
-            if type(combat.AutoParry) == "boolean" then
-                AutoParryToggle.Set(combat.AutoParry)
-            end
-            if type(combat.AutoDodge) == "boolean" then
-                AutoDodgeToggle.Set(combat.AutoDodge)
-            end
-            if type(combat.AutoCounter) == "boolean" then
-                AutoCounterToggle.Set(combat.AutoCounter)
-            end
-            if type(combat.AutoAliCounter) == "boolean" then
-                AutoAliCounterToggle.Set(combat.AutoAliCounter)
-            end
-            if type(combat.AutoPlay) == "boolean" then
-                AutoPlayToggle.Set(combat.AutoPlay)
-            end
-            if type(combat.ParryDebug) == "boolean" then
-                ParryDebugToggle.Set(combat.ParryDebug)
-            end
-            if type(combat.PingCompensation) == "boolean" then
-                PingCompensateToggle.Set(combat.PingCompensation)
-            end
-            if type(combat.HeightMultiplier) == "boolean" then
-                HeightToggle.Set(combat.HeightMultiplier)
-            end
+            ApplyToggleControl("AutoParry", combat.AutoParry, AutoParryToggle.Set)
+            ApplyToggleControl("AutoDodge", combat.AutoDodge, AutoDodgeToggle.Set)
+            ApplyToggleControl("AutoCounter", combat.AutoCounter, AutoCounterToggle.Set)
+            ApplyToggleControl("AutoAliCounter", combat.AutoAliCounter, AutoAliCounterToggle.Set)
+            ApplyToggleControl("AutoPlay", combat.AutoPlay, AutoPlayToggle.Set)
+            ApplyToggleControl("ParryDebug", combat.ParryDebug, ParryDebugToggle.Set)
+            ApplyToggleControl(
+                "PingCompensation",
+                combat.PingCompensation,
+                PingCompensateToggle.Set
+            )
+            ApplyToggleControl("HeightMultiplier", combat.HeightMultiplier, HeightToggle.Set)
 
-            if type(combat.AutoTargetNearest) == "boolean" then
-                AutoTargetNearest.Set(combat.AutoTargetNearest)
-            end
-            if type(combat.MultipleTargets) == "boolean" then
-                MultiTarget.Set(combat.MultipleTargets)
-            end
-            if type(combat.IncludeLocalCharacter) == "boolean" then
-                IncludeLocalCharacter = combat.IncludeLocalCharacter
-            end
-            if type(combat.TargetFacingYou) == "boolean" then
-                TargetFacingYou.Set(combat.TargetFacingYou)
-            end
-            if type(combat.YouFacingTarget) == "boolean" then
-                YouFacingTarget.Set(combat.YouFacingTarget)
-            end
+            ApplyToggleControl(
+                "AutoTargetNearest",
+                combat.AutoTargetNearest,
+                AutoTargetNearest.Set
+            )
+            ApplyToggleControl("MultipleTargets", combat.MultipleTargets, MultiTarget.Set)
+            ApplyToggleControl(
+                "IncludeLocalCharacter",
+                combat.IncludeLocalCharacter,
+                function(value)
+                    IncludeLocalCharacter = value
+                end
+            )
+            ApplyToggleControl("TargetFacingYou", combat.TargetFacingYou, TargetFacingYou.Set)
+            ApplyToggleControl("YouFacingTarget", combat.YouFacingTarget, YouFacingTarget.Set)
 
             if type(combat.AutoParryRange) == "number" then
                 AutoParryRange = combat.AutoParryRange
+                SyncUIControl(AutoParryRangeSlider, AutoParryRange)
             end
             if type(combat.MaxCycleRange) == "number" then
                 MaxCycleRange = combat.MaxCycleRange
+                SyncUIControl(MaxCycleRangeSlider, MaxCycleRange)
             end
             if type(combat.ProbabilityToParry) == "number" then
                 ProbabilityToParry = combat.ProbabilityToParry
+                SyncUIControl(ProbabilityToParrySlider, ProbabilityToParry)
             end
             if type(combat.ParryOffset) == "number" then
                 ParryOffset = combat.ParryOffset
+                SyncUIControl(ParryOffsetSlider, math.floor(ParryOffset * 1000 + 0.5))
             end
             if type(combat.ParryWindow) == "number" then
                 ParryWindow = combat.ParryWindow
+                SyncUIControl(ParryWindowSlider, math.floor(ParryWindow * 1000 + 0.5))
             end
         end
 
