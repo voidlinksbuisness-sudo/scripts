@@ -10,6 +10,9 @@ local Camera = workspace.CurrentCamera
 local UPDATE_RATE = math.max(1, tonumber(_G.ESPUpdateRate) or 30)
 local UPDATE_INTERVAL = 1 / UPDATE_RATE
 local CHARACTER_REFRESH_INTERVAL = 1
+local MIN_ESP_DISTANCE = 10
+local MAX_ESP_DISTANCE = 500
+local DEFAULT_ESP_DISTANCE = 50
 
 --// COLORS
 local C = {
@@ -26,11 +29,36 @@ local C = {
 }
 
 --// STATE
+local initialEspDistance = math.clamp(
+	tonumber(_G.ESPMaxDistance) or DEFAULT_ESP_DISTANCE,
+	MIN_ESP_DISTANCE,
+	MAX_ESP_DISTANCE
+)
+
 local state = {
 	ESP = false,
 	Tracers = false,
 	TracerTransparency = 0,
+	ESPDistance = initialEspDistance,
 }
+
+_G.ESPMaxDistance = initialEspDistance
+_G.ESPMaxDistanceSquared = initialEspDistance * initialEspDistance
+
+local function getEspMaxDistanceSquared()
+	local maxDistance = tonumber(_G.ESPMaxDistance)
+	if maxDistance then
+		maxDistance = math.max(0, maxDistance)
+		return maxDistance * maxDistance
+	end
+
+	local maxDistanceSquared = tonumber(_G.ESPMaxDistanceSquared)
+	if maxDistanceSquared then
+		return math.max(0, maxDistanceSquared)
+	end
+
+	return state.ESPDistance * state.ESPDistance
+end
 
 --// GUI SETTINGS
 local PX, PY = 50, 120
@@ -39,7 +67,7 @@ local HEAD_H = 42
 local ROW_H = 34
 local SLIDER_H = 45
 local FOOT_H = 26
-local PH = HEAD_H + (ROW_H * 2) + SLIDER_H + FOOT_H + 10
+local PH = HEAD_H + (ROW_H * 2) + (SLIDER_H * 2) + FOOT_H + 10
 
 local menuVisible = true
 local menuDirty = true
@@ -113,6 +141,24 @@ local espLabel = mkText(16, 12)
 local tracerIndicator = mkSquare(10)
 local tracerLabel = mkText(16, 12)
 
+local distanceLabel = mkText(13, 12)
+distanceLabel.Color = C.sub
+
+local distanceBar = mkSquare(10)
+distanceBar.Filled = true
+distanceBar.Color = C.border
+distanceBar.Corner = 3
+
+local distanceFill = mkSquare(11)
+distanceFill.Filled = true
+distanceFill.Color = C.accent
+distanceFill.Corner = 3
+
+local distanceKnob = mkSquare(12)
+distanceKnob.Filled = true
+distanceKnob.Color = C.text
+distanceKnob.Corner = 5
+
 local transparencyLabel = mkText(13, 12)
 transparencyLabel.Color = C.sub
 
@@ -146,6 +192,10 @@ local menuDrawings = {
 	espLabel,
 	tracerIndicator,
 	tracerLabel,
+	distanceLabel,
+	distanceBar,
+	distanceFill,
+	distanceKnob,
 	transparencyLabel,
 	transparencyBar,
 	transparencyFill,
@@ -193,15 +243,33 @@ local function updateMenu()
 	local barX = PX + 16
 	local barY = sliderY + 19
 	local barW = PW - 32
-	local percentage = state.TracerTransparency / 100
+	local distancePercentage =
+		(state.ESPDistance - MIN_ESP_DISTANCE) /
+		(MAX_ESP_DISTANCE - MIN_ESP_DISTANCE)
 
-	transparencyLabel.Position = Vector2.new(PX + 16, sliderY)
+	distanceLabel.Position = Vector2.new(PX + 16, sliderY)
+	distanceLabel.Text = "ESP Distance  " .. state.ESPDistance
+	distanceBar.Position = Vector2.new(barX, barY)
+	distanceBar.Size = Vector2.new(barW, 5)
+	distanceFill.Position = Vector2.new(barX, barY)
+	distanceFill.Size = Vector2.new(barW * distancePercentage, 5)
+	distanceKnob.Position = Vector2.new(barX + (barW * distancePercentage) - 4, barY - 3)
+	distanceKnob.Size = Vector2.new(8, 11)
+
+	local transparencyY = sliderY + SLIDER_H
+	local transparencyBarY = transparencyY + 19
+	local transparencyPercentage = state.TracerTransparency / 100
+
+	transparencyLabel.Position = Vector2.new(PX + 16, transparencyY)
 	transparencyLabel.Text = "Tracer Transparency  " .. state.TracerTransparency .. "%"
-	transparencyBar.Position = Vector2.new(barX, barY)
+	transparencyBar.Position = Vector2.new(barX, transparencyBarY)
 	transparencyBar.Size = Vector2.new(barW, 5)
-	transparencyFill.Position = Vector2.new(barX, barY)
-	transparencyFill.Size = Vector2.new(barW * percentage, 5)
-	transparencyKnob.Position = Vector2.new(barX + (barW * percentage) - 4, barY - 3)
+	transparencyFill.Position = Vector2.new(barX, transparencyBarY)
+	transparencyFill.Size = Vector2.new(barW * transparencyPercentage, 5)
+	transparencyKnob.Position = Vector2.new(
+		barX + (barW * transparencyPercentage) - 4,
+		transparencyBarY - 3
+	)
 	transparencyKnob.Size = Vector2.new(8, 11)
 	footer.Position = Vector2.new(PX + 16, PY + PH - FOOT_H + 3)
 end
@@ -329,6 +397,7 @@ local function updateEspTracers()
 	local viewport = Camera.ViewportSize
 	local origin = Vector2.new(viewport.X * 0.5, viewport.Y)
 	local camPos = Camera.CFrame.Position
+	local maxDistanceSquared = getEspMaxDistanceSquared()
 	local tracerTransparency = 1 - (state.TracerTransparency / 100)
 
 	for _, player in ipairs(playersCache) do
@@ -336,20 +405,29 @@ local function updateEspTracers()
 		local root = characterCache[player].Root
 		local visible = false
 		local screenPos
+		local distanceSquared
 
 		if root then
-			screenPos, visible = WorldToScreen(root.Position)
-			visible = visible
-				and screenPos.X >= 0
-				and screenPos.X <= viewport.X
-				and screenPos.Y >= 0
-				and screenPos.Y <= viewport.Y
+			local position = root.Position
+			local dx = position.X - camPos.X
+			local dy = position.Y - camPos.Y
+			local dz = position.Z - camPos.Z
+			distanceSquared = dx * dx + dy * dy + dz * dz
+
+			if distanceSquared <= maxDistanceSquared then
+				screenPos, visible = WorldToScreen(position)
+				visible = visible
+					and screenPos.X >= 0
+					and screenPos.X <= viewport.X
+					and screenPos.Y >= 0
+					and screenPos.Y <= viewport.Y
+			end
 		end
 
 		if state.ESP and visible then
 			drawings = drawings or getPlayerDrawings(player)
 			local box = getEspBox(drawings)
-			local distance = (camPos - root.Position).Magnitude
+			local distance = math.sqrt(distanceSquared)
 			local scale = math.clamp(1500 / math.max(distance, 0.001), 8, 400)
 			local size = Vector2.new(scale, scale * 1.5)
 
@@ -404,7 +482,27 @@ local function handleMenuClick(mx, my)
 	local barW = PW - 32
 
 	if mx >= barX and mx <= barX + barW and my >= barY - 3 and my <= barY + 10 then
-		state.TracerTransparency = math.floor(math.clamp((mx - barX) / barW, 0, 1) * 100)
+		local percentage = math.clamp((mx - barX) / barW, 0, 1)
+		state.ESPDistance = math.floor(
+			MIN_ESP_DISTANCE +
+			(percentage * (MAX_ESP_DISTANCE - MIN_ESP_DISTANCE)) +
+			0.5
+		)
+		_G.ESPMaxDistance = state.ESPDistance
+		_G.ESPMaxDistanceSquared = state.ESPDistance * state.ESPDistance
+		setDirty()
+		return
+	end
+
+	local transparencyBarY = barY + SLIDER_H
+	if mx >= barX
+		and mx <= barX + barW
+		and my >= transparencyBarY - 3
+		and my <= transparencyBarY + 10 then
+
+		state.TracerTransparency = math.floor(
+			math.clamp((mx - barX) / barW, 0, 1) * 100
+		)
 		setDirty()
 	end
 end
