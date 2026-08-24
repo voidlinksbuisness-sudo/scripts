@@ -1,4 +1,4 @@
--- FFTM_MAIN_BUILD = "2026-08-24-KEYBINDS-1"
+-- FFTM_MAIN_BUILD = "2026-08-24-ESP-DISTANCE-1"
 --// WABI SABI UI
 loadstring(game:HttpGet("https://scripts.wabisabi.mom/wabi-sabi-ui-lib.lua"))()
 
@@ -30,7 +30,7 @@ local Camera = workspace.CurrentCamera
 --==================================================
 -- FFTM REMOTE SESSION CONTROL
 --==================================================
-FFTM_MAIN_VERSION = "2026-08-24-KEYBINDS-1"
+FFTM_MAIN_VERSION = "2026-08-24-ESP-DISTANCE-1"
 FFTM_API_URL = "https://fftm-parry-api.voidlinksbuisness.workers.dev"
 FFTM_RUNNING = true
 FFTM_LAST_HEARTBEAT_AT = -1000000
@@ -225,6 +225,8 @@ local state = {
     ESP = false,
     Tracers = false,
     TracerTransparency = 0,
+    ESPDistance = 50,
+    ESPDistanceSquared = 50 * 50,
 
     PlayerHealth = false,
     SelfHealth = false,
@@ -232,6 +234,8 @@ local state = {
     PlayerHealthDistance = 50,
     PlayerHealthDistanceSquared = 50 * 50,
 }
+_G.ESPMaxDistance = 50
+_G.ESPMaxDistanceSquared = 50 * 50
 _G.HealthESPMaxDistance = 50
 _G.HealthESPMaxDistanceSquared = 50 * 50
 
@@ -262,6 +266,25 @@ end
 local espBoxes = {}
 local tracerLines = {}
 local healthTexts = {}
+
+--// ESP CONFIG
+local DEFAULT_ESP_DISTANCE_SQUARED = 50 * 50
+
+local function getEspMaxDistanceSquared()
+    local maxDistance = tonumber(_G.ESPMaxDistance)
+    if maxDistance then
+        maxDistance = math.max(0, maxDistance)
+        return maxDistance * maxDistance
+    end
+
+    local maxDistanceSquared = tonumber(_G.ESPMaxDistanceSquared)
+    if maxDistanceSquared then
+        return math.max(0, maxDistanceSquared)
+    end
+
+    return state.ESPDistanceSquared
+        or DEFAULT_ESP_DISTANCE_SQUARED
+end
 
 --// HEALTH CONFIG
 local DEFAULT_HEALTH_DISTANCE_SQUARED = 50 * 50
@@ -421,6 +444,8 @@ local function updateEspTracers(players)
     local myPos = myRoot and myRoot.Position
 
     local camPos = Camera.CFrame.Position
+    local referencePos = myPos or camPos
+    local maxDistanceSquared = getEspMaxDistanceSquared()
     local count = #players
 
     for i, player in ipairs(players) do
@@ -436,8 +461,14 @@ local function updateEspTracers(players)
 
             if root then
                 local pos = root.Position
+                local dx = pos.X - referencePos.X
+                local dy = pos.Y - referencePos.Y
+                local dz = pos.Z - referencePos.Z
+                local distanceSquared = dx * dx + dy * dy + dz * dz
 
-                if not nearSelf(pos, myPos) then
+                if distanceSquared <= maxDistanceSquared
+                    and not nearSelf(pos, myPos) then
+
                     local screenPos, onScreen = WorldToScreen(pos)
 
                     if onScreen
@@ -648,6 +679,24 @@ Main:AddSlider({
     Callback = function(value)
         state.TracerTransparency = value
         print("Tracer Transparency:", value)
+    end
+})
+
+local ESPDistanceSlider = Main:AddSlider({
+    Id = "esp_distance",
+    Title = "ESP Distance",
+    Min = 10,
+    Max = 500,
+    Default = 50,
+
+    Callback = function(value)
+        value = tonumber(value) or 50
+
+        state.ESPDistance = value
+        state.ESPDistanceSquared = value * value
+
+        _G.ESPMaxDistance = value
+        _G.ESPMaxDistanceSquared = value * value
     end
 })
 
@@ -3483,6 +3532,7 @@ function SetupPresetConfigUI()
                 ESP = state.ESP,
                 Tracers = state.Tracers,
                 TracerTransparency = state.TracerTransparency,
+                ESPDistance = state.ESPDistance,
                 PlayerHealth = state.PlayerHealth,
                 SelfHealth = state.SelfHealth,
             },
@@ -3565,6 +3615,21 @@ function SetupPresetConfigUI()
             end
             if type(visuals.TracerTransparency) == "number" then
                 state.TracerTransparency = visuals.TracerTransparency
+            end
+            if type(visuals.ESPDistance) == "number" then
+                local distance = math.clamp(visuals.ESPDistance, 10, 500)
+                state.ESPDistance = distance
+                state.ESPDistanceSquared = distance * distance
+                _G.ESPMaxDistance = distance
+                _G.ESPMaxDistanceSquared = state.ESPDistanceSquared
+
+                if ESPDistanceSlider
+                    and type(ESPDistanceSlider.SetValue) == "function" then
+
+                    pcall(function()
+                        ESPDistanceSlider:SetValue(distance)
+                    end)
+                end
             end
             if type(visuals.PlayerHealth) == "boolean" then
                 state.PlayerHealth = visuals.PlayerHealth
