@@ -1,4 +1,4 @@
--- FFTM_MAIN_BUILD = "2026-08-17-LATEST-SESSION-ONLY-7"
+-- FFTM_MAIN_BUILD = "2026-08-24-KEYBINDS-1"
 --// WABI SABI UI
 loadstring(game:HttpGet("https://scripts.wabisabi.mom/wabi-sabi-ui-lib.lua"))()
 
@@ -10,6 +10,7 @@ local Window = Library:CreateWindow({
     Size = Vector2.new(580, 460),
     Resize = true,
     Theme = "AmethystDark",
+    MinimizeKey = 0,
 })
 
 local Main = Window:AddTab({
@@ -21,9 +22,7 @@ local Main = Window:AddTab({
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local UIS = game:GetService("UserInputService")
-local ContextActionService = game:GetService("ContextActionService")
 local SelectedFolder = nil
-local CycleKeybind = Enum.KeyCode.X
 
 local LocalPlayer = Players.LocalPlayer
 local Camera = workspace.CurrentCamera
@@ -31,7 +30,7 @@ local Camera = workspace.CurrentCamera
 --==================================================
 -- FFTM REMOTE SESSION CONTROL
 --==================================================
-FFTM_MAIN_VERSION = "2026-08-17-LATEST-SESSION-ONLY-7"
+FFTM_MAIN_VERSION = "2026-08-24-KEYBINDS-1"
 FFTM_API_URL = "https://fftm-parry-api.voidlinksbuisness.workers.dev"
 FFTM_RUNNING = true
 FFTM_LAST_HEARTBEAT_AT = -1000000
@@ -819,6 +818,7 @@ local AutoParryTab   = SafeAddTab("Auto Parry", "swords")
 local TargetingTab   = SafeAddTab("Targeting", "crosshair")
 local ParryConfigTab = SafeAddTab("Parry Config", "settings")
 local ConfigTab      = SafeAddTab("Config", "settings")
+local KeybindsTab    = SafeAddTab("Keybinds", "keyboard")
 
 -- Admin controls are created only when the private loader supplied
 -- _G.FFTM_ADMIN_KEY. This avoids brittle username spelling/case checks.
@@ -3072,8 +3072,200 @@ SafeAddSlider(TargetingTab, {
 })
 
 
-local ProcessToggleKeybind = nil
-local AddKeybindDropdown = nil
+--==================================================
+-- KEYBINDS
+--==================================================
+
+local KeybindSpecs = {}
+local KeybindSpecsById = {}
+local KeybindControls = {}
+
+local function ToggleMenuVisibility()
+    if Library and type(Library.Minimize) == "function" then
+        Library:Minimize()
+        return
+    end
+
+    Notify("Keybinds", "Could not locate the menu UI.", 3)
+end
+
+local function SyncUIToggle(toggleName, value)
+    local control = UIToggles[toggleName]
+    if not control then
+        return
+    end
+
+    for _, methodName in ipairs({ "Set", "SetValue", "SetState" }) do
+        if type(control[methodName]) == "function" then
+            pcall(function()
+                control[methodName](control, value)
+            end)
+            return
+        end
+    end
+end
+
+local function RegisterActionKeybind(id, title, defaultKeyCode, action)
+    local spec = {
+        Id = id,
+        Title = title,
+        KeyName = defaultKeyCode and defaultKeyCode.Name or nil,
+        Action = action,
+    }
+
+    table.insert(KeybindSpecs, spec)
+    KeybindSpecsById[id] = spec
+    return spec
+end
+
+local function RegisterToggleKeybind(id, title, toggleName, getter, setter)
+    local spec = {
+        Id = id,
+        Title = title,
+        ToggleName = toggleName,
+        KeyName = nil,
+        Get = getter,
+        Set = setter,
+    }
+
+    table.insert(KeybindSpecs, spec)
+    KeybindSpecsById[id] = spec
+    return spec
+end
+
+local function TriggerManualCycle()
+    CycleEvent(true)
+end
+
+RegisterActionKeybind(
+    "menu_toggle",
+    "Open / Close Menu",
+    Enum.KeyCode.M,
+    ToggleMenuVisibility
+)
+
+RegisterActionKeybind(
+    "cycle_target",
+    "Cycle Target",
+    nil,
+    TriggerManualCycle
+)
+
+RegisterToggleKeybind("auto_parry", "Auto Parry", "AutoParry",
+    AutoParryToggle.Get, AutoParryToggle.Set)
+RegisterToggleKeybind("auto_dodge", "Auto Dodge / Heavy", "AutoDodge",
+    AutoDodgeToggle.Get, AutoDodgeToggle.Set)
+RegisterToggleKeybind("auto_counter", "Auto Counter", "AutoCounter",
+    AutoCounterToggle.Get, AutoCounterToggle.Set)
+RegisterToggleKeybind("auto_ali_counter", "Auto Ali Counter", "AutoAliCounter",
+    AutoAliCounterToggle.Get, AutoAliCounterToggle.Set)
+RegisterToggleKeybind("auto_play", "Auto Play", "AutoPlay",
+    AutoPlayToggle.Get, AutoPlayToggle.Set)
+RegisterToggleKeybind("parry_debug", "Debug Parry", "ParryDebug",
+    ParryDebugToggle.Get, ParryDebugToggle.Set)
+
+RegisterToggleKeybind("auto_target_nearest", "Auto Target Nearest", "AutoTargetNearest",
+    AutoTargetNearest.Get, AutoTargetNearest.Set)
+RegisterToggleKeybind("multiple_targets", "Multiple Targets", "MultipleTargets",
+    MultiTarget.Get, MultiTarget.Set)
+RegisterToggleKeybind("include_local_character", "Include Local Character", "IncludeLocalCharacter",
+    function() return IncludeLocalCharacter end,
+    function(value) IncludeLocalCharacter = value end)
+RegisterToggleKeybind("target_facing_you", "Target Facing You", "TargetFacingYou",
+    TargetFacingYou.Get, TargetFacingYou.Set)
+RegisterToggleKeybind("you_facing_target", "You Facing Target", "YouFacingTarget",
+    YouFacingTarget.Get, YouFacingTarget.Set)
+
+RegisterToggleKeybind("height_multiplier", "Height Multiplier", "HeightMultiplier",
+    HeightToggle.Get, HeightToggle.Set)
+RegisterToggleKeybind("ping_compensation", "Ping Compensation", "PingCompensation",
+    PingCompensateToggle.Get, PingCompensateToggle.Set)
+
+RegisterToggleKeybind("esp", "ESP", "ESP",
+    function() return state.ESP end,
+    function(value) state.ESP = value end)
+RegisterToggleKeybind("tracers", "Tracers", "Tracers",
+    function() return state.Tracers end,
+    function(value) state.Tracers = value end)
+RegisterToggleKeybind("player_health", "Player Health", "PlayerHealth",
+    function() return state.PlayerHealth end,
+    function(value) state.PlayerHealth = value end)
+RegisterToggleKeybind("self_health", "Self Health", "SelfHealth",
+    function() return state.SelfHealth end,
+    function(value) state.SelfHealth = value end)
+
+local function SetKeybind(spec, value)
+    if typeof(value) == "EnumItem" then
+        value = value.Name
+    end
+
+    spec.KeyName = type(value) == "string"
+        and value ~= ""
+        and value ~= "None"
+        and value
+        or nil
+end
+
+local function AddKeybindControl(spec)
+    local control = SafeControl(KeybindsTab, "AddKeybind", {
+        Id = "keybind_" .. spec.Id,
+        Title = spec.Title,
+        Default = spec.KeyName,
+        Mode = "Toggle",
+
+        Callback = function()
+            if spec.Action then
+                spec.Action()
+            else
+                local newValue = not spec.Get()
+                spec.Set(newValue)
+                SyncUIToggle(spec.ToggleName, newValue)
+            end
+        end,
+
+        ChangedCallback = function(keyName)
+            SetKeybind(spec, keyName)
+        end
+    })
+
+    KeybindControls[spec.Id] = control
+end
+
+for _, spec in ipairs(KeybindSpecs) do
+    AddKeybindControl(spec)
+end
+
+local function CaptureKeybindConfig()
+    local config = {}
+
+    for _, spec in ipairs(KeybindSpecs) do
+        config[spec.Id] = spec.KeyName or "None"
+    end
+
+    return config
+end
+
+local function ApplyKeybindConfig(config)
+    if type(config) ~= "table" then
+        return
+    end
+
+    for id, value in pairs(config) do
+        local spec = KeybindSpecsById[id]
+
+        if spec and type(value) == "string" then
+            SetKeybind(spec, value)
+
+            local control = KeybindControls[id]
+            if control and type(control.SetValue) == "function" then
+                pcall(function()
+                    control:SetValue(value == "None" and nil or value, "Toggle")
+                end)
+            end
+        end
+    end
+end
+
 function SetupPresetConfigUI()
     --==================================================
     -- CONFIG / PERSISTENT LOCAL PROFILES
@@ -3318,6 +3510,7 @@ function SetupPresetConfigUI()
                 ParryWindow = ParryWindow,
             },
 
+            Keybinds = CaptureKeybindConfig(),
             AnimationTimings = CopyAnimationTimings(),
             Whitelist = CopyWhitelist(),
         }
@@ -3452,6 +3645,7 @@ function SetupPresetConfigUI()
 
         ApplyWhitelist(config.Whitelist)
         ApplyAnimationTimings(config.AnimationTimings)
+        ApplyKeybindConfig(config.Keybinds)
 
         return true
     end
@@ -3670,34 +3864,6 @@ end
 
 SetupTargetFolderUI()
 
-function SetupManualTargetContextAction()
-    local ok, err = pcall(function()
-        ContextActionService:UnbindAction("FFTM_ManualTargetCycle")
-
-        ContextActionService:BindAction(
-            "FFTM_ManualTargetCycle",
-            function(actionName, inputState, inputObject)
-                if inputState == Enum.UserInputState.Begin then
-                    print("[Target] ContextActionService detected X")
-                    CycleEvent(true)
-                end
-
-                return Enum.ContextActionResult.Pass
-            end,
-            false,
-            Enum.KeyCode.X
-        )
-    end)
-
-    if ok then
-        print("[Target] ContextActionService X binding installed")
-    else
-        warn("[Target] ContextActionService binding failed: " .. tostring(err))
-    end
-end
-
-SetupManualTargetContextAction()
-
 Library:Notify({
     Title = "Loaded",
     Content = "Wabi visuals + Gakuran dependencies loaded.",
@@ -3717,18 +3883,6 @@ end)
 -- Input & Loop
 -- ==========================================
 UIS.InputBegan:Connect(function(input, gameProcessed)
-    -- Manual targeting gets first priority.
-    -- RhythmServiceUI used to swallow X before it could reach CycleEvent().
-    if input.KeyCode == CycleKeybind then
-        if not ManualCycleKeyWasDown then
-            print("[Target] X InputBegan fallback -> manual cycle")
-            CycleEvent(true)
-        end
-
-        ManualCycleKeyWasDown = true
-        return
-    end
-
     if gameProcessed then
         return
     end
@@ -3763,68 +3917,10 @@ local STATE_MACHINE_TICK = 0.05
 local UTILITY_TICK = 0.5 -- Run 2 times per second
 local LastCycleCheck = 0
 
-local ManualCycleKeyWasDown = false
-
-function IsManualCycleKeyDown()
-    local down = false
-
-    -- Preferred: normal Roblox physical-key polling.
-    local ok = pcall(function()
-        down = UIS:IsKeyDown(CycleKeybind)
-    end)
-
-    if ok and down then
-        return true
-    end
-
-    -- Alternate Roblox polling path.
-    local keysOk, pressedKeys = pcall(function()
-        return UIS:GetKeysPressed()
-    end)
-
-    if keysOk and type(pressedKeys) == "table" then
-        for _, inputObject in ipairs(pressedKeys) do
-            local keyOk, keyCode = pcall(function()
-                return inputObject.KeyCode
-            end)
-
-            if keyOk and keyCode == CycleKeybind then
-                return true
-            end
-        end
-    end
-
-    -- Matcha fallback if UserInputService polling is unavailable.
-    if type(iskeypressed) == "function" then
-        local fallbackOk, fallbackDown = pcall(function()
-            return iskeypressed(string.byte("X"))
-        end)
-
-        if fallbackOk and fallbackDown then
-            return true
-        end
-    end
-
-    return false
-end
-
-function PollManualCycleKey()
-    local down = IsManualCycleKeyDown()
-
-    if down and not ManualCycleKeyWasDown then
-        print("[Target] X polling detected -> manual cycle")
-        CycleEvent(true)
-    end
-
-    ManualCycleKeyWasDown = down
-end
-
 function MainLoop()
     if not FFTM_RUNNING then
         return
     end
-
-    PollManualCycleKey()
 
     local now = os.clock()
 
