@@ -4,34 +4,35 @@ local RunService = game:GetService("RunService")
 local LocalPlayer = Players.LocalPlayer
 local Camera = workspace.CurrentCamera
 
---// CONFIG
+-- Visuals are capped independently of render FPS to reduce projection and Drawing work.
+-- Set _G.HealthESPUpdateRate before loading to override the 30 Hz default.
+local UPDATE_RATE = math.max(1, tonumber(_G.HealthESPUpdateRate) or 30)
+local UPDATE_INTERVAL = 1 / UPDATE_RATE
+local CHARACTER_REFRESH_INTERVAL = 1
+local DEFAULT_MAX_DISTANCE_SQUARED = 50 * 50
+local HEAD_OFFSET = Vector3.new(0, 3, 0)
+
 local function getMaxDistanceSquared()
-    return _G.HealthESPMaxDistanceSquared or (50 * 50)
+	-- Prefer the public distance setting, which is expressed in studs.
+	-- This also lets callers change the range after the script has loaded.
+	local maxDistance = tonumber(_G.HealthESPMaxDistance)
+	if maxDistance then
+		maxDistance = math.max(0, maxDistance)
+		return maxDistance * maxDistance
+	end
+
+	-- Backwards compatibility for callers that already provide a squared value.
+	local maxDistanceSquared = tonumber(_G.HealthESPMaxDistanceSquared)
+	if maxDistanceSquared then
+		return math.max(0, maxDistanceSquared)
+	end
+
+	return DEFAULT_MAX_DISTANCE_SQUARED
 end
 
-
--- How often to refresh Players:GetPlayers()
-local PLAYER_REFRESH_INTERVAL = 5
-
--- How often to refresh Character/Humanoid/Root references
-local CHARACTER_REFRESH_INTERVAL = 1
-
---// DRAWING POOL
-local healthTexts = {}
-
-local myHealthText = Drawing.new("Text")
-myHealthText.Size = 20
-myHealthText.Outline = true
-myHealthText.Font = Drawing.Fonts.Fortnite
-myHealthText.ZIndex = 20
-myHealthText.Transparency = 1
-myHealthText.Color = Color3.new(0, 1, 0)
-myHealthText.Visible = true
-myHealthText.Center = true
-
+--// DRAWINGS
 local function makeText()
 	local text = Drawing.new("Text")
-
 	text.Size = 20
 	text.Outline = true
 	text.Font = Drawing.Fonts.Fortnite
@@ -40,287 +41,209 @@ local function makeText()
 	text.Color = Color3.new(0, 1, 0)
 	text.Visible = false
 	text.Center = true
-
 	return text
 end
 
-local function getText(index)
-	local text = healthTexts[index]
-
-	if not text then
-		text = makeText()
-		healthTexts[index] = text
-	end
-
-	return text
-end
+local myHealthText = makeText()
 
 --// PLAYER CACHE
 local playersCache = {}
-local characterCache = {}
+local playerData = {}
 
-local function refreshPlayers()
-	playersCache = Players:GetPlayers()
-
-	-- Remove cache entries for players that no longer exist.
-	local activePlayers = {}
-
-	for _, player in ipairs(playersCache) do
-		activePlayers[player] = true
+local function addPlayer(player)
+	if player == LocalPlayer or playerData[player] then
+		return
 	end
 
-	for player in pairs(characterCache) do
-		if not activePlayers[player] then
-			characterCache[player] = nil
+	playersCache[#playersCache + 1] = player
+	playerData[player] = {
+		Character = nil,
+		Humanoid = nil,
+		Root = nil,
+		LastHealth = nil,
+		Text = nil,
+	}
+end
+
+local function removePlayer(player)
+	for index, cachedPlayer in ipairs(playersCache) do
+		if cachedPlayer == player then
+			table.remove(playersCache, index)
+			break
 		end
 	end
+
+	local data = playerData[player]
+	if data and data.Text then
+		data.Text.Visible = false
+		data.Text:Remove()
+	end
+
+	playerData[player] = nil
 end
 
 local function refreshCharacters()
 	for _, player in ipairs(playersCache) do
-		if player ~= LocalPlayer then
-			local character = player.Character
-			local data = characterCache[player]
+		local data = playerData[player]
+		local character = player.Character
 
-			if character then
-				-- Character changed or wasn't cached.
-				if not data or data.Character ~= character then
-					characterCache[player] = {
-						Character = character,
-						Humanoid = character:FindFirstChildOfClass("Humanoid"),
-						Root = character:FindFirstChild("HumanoidRootPart"),
-						LastHealth = nil
-					}
-				else
-					-- Only repair missing references.
-					if not data.Humanoid
-						or data.Humanoid.Parent ~= character then
+		if data.Character ~= character then
+			data.Character = character
+			data.Humanoid = character and character:FindFirstChildOfClass("Humanoid") or nil
+			data.Root = character and character:FindFirstChild("HumanoidRootPart") or nil
+			data.LastHealth = nil
+		elseif character then
+			if not data.Humanoid or data.Humanoid.Parent ~= character then
+				data.Humanoid = character:FindFirstChildOfClass("Humanoid")
+				data.LastHealth = nil
+			end
 
-						data.Humanoid =
-							character:FindFirstChildOfClass("Humanoid")
-					end
-
-					if not data.Root
-						or data.Root.Parent ~= character then
-
-						data.Root =
-							character:FindFirstChild("HumanoidRootPart")
-					end
-				end
-			else
-				characterCache[player] = nil
+			if not data.Root or data.Root.Parent ~= character then
+				data.Root = character:FindFirstChild("HumanoidRootPart")
 			end
 		end
 	end
 end
 
--- Initial cache.
-refreshPlayers()
+for _, player in ipairs(Players:GetPlayers()) do
+	addPlayer(player)
+end
+
+Players.PlayerAdded:Connect(addPlayer)
+Players.PlayerRemoving:Connect(removePlayer)
 refreshCharacters()
 
 --// LOCAL PLAYER CACHE
-local localCharacter = nil
-local localHumanoid = nil
-local localRoot = nil
-local localLastHealth = nil
+local localCharacter
+local localHumanoid
+local localRoot
+local localLastHealth
 
 local function refreshLocalCharacter()
 	local character = LocalPlayer.Character
 
 	if character ~= localCharacter then
 		localCharacter = character
+		localHumanoid = character and character:FindFirstChildOfClass("Humanoid") or nil
+		localRoot = character and character:FindFirstChild("HumanoidRootPart") or nil
 		localLastHealth = nil
-
-		if character then
-			localHumanoid =
-				character:FindFirstChildOfClass("Humanoid")
-
-			localRoot =
-				character:FindFirstChild("HumanoidRootPart")
-		else
-			localHumanoid = nil
-			localRoot = nil
+	elseif character then
+		if not localHumanoid or localHumanoid.Parent ~= character then
+			localHumanoid = character:FindFirstChildOfClass("Humanoid")
+			localLastHealth = nil
 		end
-	else
-		if character then
-			if not localHumanoid
-				or localHumanoid.Parent ~= character then
 
-				localHumanoid =
-					character:FindFirstChildOfClass("Humanoid")
-			end
-
-			if not localRoot
-				or localRoot.Parent ~= character then
-
-				localRoot =
-					character:FindFirstChild("HumanoidRootPart")
-			end
+		if not localRoot or localRoot.Parent ~= character then
+			localRoot = character:FindFirstChild("HumanoidRootPart")
 		end
 	end
 end
 
 refreshLocalCharacter()
 
---// TIMERS
-local playerRefreshTimer = 0
-local characterRefreshTimer = 0
-
--- Reused offset instead of constructing it every frame.
-local HEAD_OFFSET = Vector3.new(0, 3, 0)
-
---// HELPERS
-local function hideHealthTexts(startIndex)
-	for i = startIndex, #healthTexts do
-		if healthTexts[i].Visible then
-			healthTexts[i].Visible = false
+local function hideOtherHealth()
+	for _, data in pairs(playerData) do
+		if data.Text and data.Text.Visible then
+			data.Text.Visible = false
 		end
 	end
 end
 
 --// MAIN LOOP
+local updateTimer = UPDATE_INTERVAL
+local characterTimer = CHARACTER_REFRESH_INTERVAL
+local lastViewport
+
 RunService.RenderStepped:Connect(function(deltaTime)
+	updateTimer += deltaTime
+	characterTimer += deltaTime
 
-	--==================================================
-	-- CACHE REFRESH
-	--==================================================
-
-	playerRefreshTimer += deltaTime
-	characterRefreshTimer += deltaTime
-
-	if playerRefreshTimer >= PLAYER_REFRESH_INTERVAL then
-		playerRefreshTimer = 0
-		refreshPlayers()
-	end
-
-	if characterRefreshTimer >= CHARACTER_REFRESH_INTERVAL then
-		characterRefreshTimer = 0
+	if characterTimer >= CHARACTER_REFRESH_INTERVAL then
+		characterTimer = 0
 		refreshLocalCharacter()
 		refreshCharacters()
 	end
 
-	--==================================================
-	-- CAMERA / VIEWPORT
-	--==================================================
+	if updateTimer < UPDATE_INTERVAL then
+		return
+	end
+	updateTimer = 0
+
+	Camera = workspace.CurrentCamera or Camera
+	if not Camera then
+		myHealthText.Visible = false
+		hideOtherHealth()
+		return
+	end
 
 	local viewport = Camera.ViewportSize
-
-	--==================================================
-	-- MY HEALTH
-	--==================================================
+	if viewport ~= lastViewport then
+		lastViewport = viewport
+		myHealthText.Position = Vector2.new(viewport.X * 0.5, viewport.Y * 0.5)
+	end
 
 	if localHumanoid and localHumanoid.Health > 0 then
 		local health = math.floor(localHumanoid.Health)
-
-		-- Only change the Drawing text when HP changes.
 		if localLastHealth ~= health then
 			localLastHealth = health
 			myHealthText.Text = "+ " .. health
 		end
-
-		local centerX = viewport.X * 0.5
-		local centerY = viewport.Y * 0.5
-
-		myHealthText.Position = Vector2.new(centerX, centerY)
-
-		if not myHealthText.Visible then
-			myHealthText.Visible = true
-		end
+		myHealthText.Visible = true
 	else
-		if myHealthText.Visible then
-			myHealthText.Visible = false
-		end
+		myHealthText.Visible = false
 	end
 
-	--==================================================
-	-- LOCAL ROOT CHECK
-	--==================================================
-
 	if not localRoot then
-		hideHealthTexts(1)
+		hideOtherHealth()
 		return
 	end
 
 	local myPosition = localRoot.Position
-	local count = 0
-
-	--==================================================
-	-- OTHER PLAYERS
-	--==================================================
+	local maxDistanceSquared = getMaxDistanceSquared()
 
 	for _, player in ipairs(playersCache) do
-		if player ~= LocalPlayer then
+		local data = playerData[player]
+		local humanoid = data.Humanoid
+		local root = data.Root
+		local visible = false
 
-			count += 1
+		if humanoid and root and humanoid.Health > 0 then
+			local position = root.Position
+			local dx = position.X - myPosition.X
+			local dy = position.Y - myPosition.Y
+			local dz = position.Z - myPosition.Z
+			local distanceSquared = dx * dx + dy * dy + dz * dz
 
-			local text = getText(count)
-			local data = characterCache[player]
+			if distanceSquared <= maxDistanceSquared then
+				local screenPosition, onScreen = WorldToScreen(position + HEAD_OFFSET)
+				visible = onScreen
+					and screenPosition.X >= 0
+					and screenPosition.X <= viewport.X
+					and screenPosition.Y >= 0
+					and screenPosition.Y <= viewport.Y
 
-			local visible = false
-
-			if data then
-				local humanoid = data.Humanoid
-				local root = data.Root
-
-				if humanoid
-					and root
-					and humanoid.Health > 0 then
-
-					local position = root.Position
-
-					-- Squared distance check.
-					local dx = position.X - myPosition.X
-					local dy = position.Y - myPosition.Y
-					local dz = position.Z - myPosition.Z
-
-					local distanceSquared =
-						dx * dx +
-						dy * dy +
-						dz * dz
-
-					-- Don't project players outside ESP range.
-					if distanceSquared <= getMaxDistanceSquared() then
-
-						local screenPosition, onScreen =
-							WorldToScreen(position + HEAD_OFFSET)
-
-						if onScreen
-							and screenPosition.X >= 0
-							and screenPosition.X <= viewport.X
-							and screenPosition.Y >= 0
-							and screenPosition.Y <= viewport.Y then
-
-							text.Position = Vector2.new(
-								screenPosition.X,
-								screenPosition.Y
-							)
-
-							local health =
-								math.floor(humanoid.Health)
-
-							-- Only change text when HP changed.
-							if data.LastHealth ~= health then
-								data.LastHealth = health
-								text.Text = "+ " .. health
-							end
-
-							visible = true
-						end
+				if visible then
+					local text = data.Text
+					if not text then
+						text = makeText()
+						data.Text = text
 					end
+
+					text.Position = Vector2.new(screenPosition.X, screenPosition.Y)
+					local health = math.floor(humanoid.Health)
+					if data.LastHealth ~= health then
+						data.LastHealth = health
+						text.Text = "+ " .. health
+					end
+					text.Visible = true
 				end
 			end
+		end
 
-			if text.Visible ~= visible then
-				text.Visible = visible
-			end
+		if not visible and data.Text and data.Text.Visible then
+			data.Text.Visible = false
 		end
 	end
-
-	--==================================================
-	-- HIDE UNUSED DRAWINGS
-	--==================================================
-
-	hideHealthTexts(count + 1)
 end)
 
 print("Optimized Health ESP loaded")

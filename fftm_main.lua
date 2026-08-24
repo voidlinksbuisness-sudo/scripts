@@ -265,8 +265,25 @@ local tracerLines = {}
 local healthTexts = {}
 
 --// HEALTH CONFIG
-local MAX_DISTANCE = 50
-local MAX_DISTANCE_SQUARED = MAX_DISTANCE * MAX_DISTANCE
+local DEFAULT_HEALTH_DISTANCE_SQUARED = 50 * 50
+
+local function getHealthMaxDistanceSquared()
+    -- HealthESPMaxDistance is expressed in studs and can change at runtime.
+    local maxDistance = tonumber(_G.HealthESPMaxDistance)
+    if maxDistance then
+        maxDistance = math.max(0, maxDistance)
+        return maxDistance * maxDistance
+    end
+
+    -- Retain compatibility with integrations that provide a squared value.
+    local maxDistanceSquared = tonumber(_G.HealthESPMaxDistanceSquared)
+    if maxDistanceSquared then
+        return math.max(0, maxDistanceSquared)
+    end
+
+    return state.PlayerHealthDistanceSquared
+        or DEFAULT_HEALTH_DISTANCE_SQUARED
+end
 
 --// SELF HEALTH
 local myHealthText = Drawing.new("Text")
@@ -535,6 +552,7 @@ local function updateHealth(players)
     end
 
     local myPosition = myRoot.Position
+    local maxDistanceSquared = getHealthMaxDistanceSquared()
     local count = 0
 
     for _, player in ipairs(players) do
@@ -561,7 +579,7 @@ local function updateHealth(players)
                     dy * dy +
                     dz * dz
 
-                if distanceSquared <= MAX_DISTANCE_SQUARED then
+                if distanceSquared <= maxDistanceSquared then
                     local screenPosition, onScreen = WorldToScreen(
                         position + Vector3.new(0, 3, 0)
                     )
