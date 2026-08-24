@@ -5,8 +5,10 @@ local LocalPlayer = Players.LocalPlayer
 local Camera = workspace.CurrentCamera
 
 --// CONFIG
-local MAX_DISTANCE = 50
-local MAX_DISTANCE_SQUARED = MAX_DISTANCE * MAX_DISTANCE
+local function getMaxDistanceSquared()
+    return _G.HealthESPMaxDistanceSquared or (50 * 50)
+end
+
 
 -- How often to refresh Players:GetPlayers()
 local PLAYER_REFRESH_INTERVAL = 5
@@ -277,7 +279,7 @@ RunService.RenderStepped:Connect(function(deltaTime)
 						dz * dz
 
 					-- Don't project players outside ESP range.
-					if distanceSquared <= MAX_DISTANCE_SQUARED then
+					if distanceSquared <= getMaxDistanceSquared() then
 
 						local screenPosition, onScreen =
 							WorldToScreen(position + HEAD_OFFSET)
