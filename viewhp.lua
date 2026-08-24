@@ -13,7 +13,21 @@ local DEFAULT_MAX_DISTANCE_SQUARED = 50 * 50
 local HEAD_OFFSET = Vector3.new(0, 3, 0)
 
 local function getMaxDistanceSquared()
-	return tonumber(_G.HealthESPMaxDistanceSquared) or DEFAULT_MAX_DISTANCE_SQUARED
+	-- Prefer the public distance setting, which is expressed in studs.
+	-- This also lets callers change the range after the script has loaded.
+	local maxDistance = tonumber(_G.HealthESPMaxDistance)
+	if maxDistance then
+		maxDistance = math.max(0, maxDistance)
+		return maxDistance * maxDistance
+	end
+
+	-- Backwards compatibility for callers that already provide a squared value.
+	local maxDistanceSquared = tonumber(_G.HealthESPMaxDistanceSquared)
+	if maxDistanceSquared then
+		return math.max(0, maxDistanceSquared)
+	end
+
+	return DEFAULT_MAX_DISTANCE_SQUARED
 end
 
 --// DRAWINGS
