@@ -657,8 +657,12 @@ Main:AddSlider({
 
         state.PlayerHealthDistance = value
         state.PlayerHealthDistanceSquared = value * value
+
+        _G.HealthESPMaxDistance = value
+        _G.HealthESPMaxDistanceSquared = value * value
     end
 })
+
 
 UIToggles.SelfHealth = Main:AddToggle({
     Id = "self_health",
