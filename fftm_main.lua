@@ -233,6 +233,8 @@ local state = {
     PlayerHealthDistance = 50,
     PlayerHealthDistanceSquared = 50 * 50,
 }
+_G.HealthESPMaxDistance = 50
+_G.HealthESPMaxDistanceSquared = 50 * 50
 
 
 --// PLAYER HELPERS
