@@ -1,4 +1,4 @@
--- FFTM_MAIN_BUILD = "2026-08-25-REGISTER-FIX-1"
+-- FFTM_MAIN_BUILD = "2026-08-25-MATCHA-CACHE-FIX-1"
 --// WABI SABI UI
 loadstring(game:HttpGet("https://scripts.wabisabi.mom/wabi-sabi-ui-lib.lua"))()
 
@@ -30,7 +30,7 @@ local Camera = workspace.CurrentCamera
 --==================================================
 -- FFTM REMOTE SESSION CONTROL
 --==================================================
-FFTM_MAIN_VERSION = "2026-08-25-REGISTER-FIX-1"
+FFTM_MAIN_VERSION = "2026-08-25-MATCHA-CACHE-FIX-1"
 FFTM_API_URL = "https://fftm-parry-api.voidlinksbuisness.workers.dev"
 FFTM_RUNNING = true
 FFTM_LAST_HEARTBEAT_AT = -1000000
@@ -251,43 +251,27 @@ local VisualRuntime = {
     HealthHeadOffset = Vector3.new(0, 3, 0),
 }
 
-function VisualRuntime.AddPlayer(player)
-    if VisualRuntime.PlayerIndices[player] then
-        return
-    end
-
-    local players = VisualRuntime.Players
-    players[#players + 1] = player
-    VisualRuntime.PlayerIndices[player] = #players
-end
-
-function VisualRuntime.RemovePlayer(player)
+function VisualRuntime.RefreshPlayers()
     local players = VisualRuntime.Players
     local playerIndices = VisualRuntime.PlayerIndices
-    local index = playerIndices[player]
-    if not index then
-        return
+    local characterCache = VisualRuntime.CharacterCache
+
+    table.clear(players)
+    table.clear(playerIndices)
+
+    for _, player in ipairs(Players:GetPlayers()) do
+        players[#players + 1] = player
+        playerIndices[player] = #players
     end
 
-    local lastIndex = #players
-    local lastPlayer = players[lastIndex]
-
-    players[index] = lastPlayer
-    players[lastIndex] = nil
-    playerIndices[player] = nil
-    VisualRuntime.CharacterCache[player] = nil
-
-    if lastPlayer and lastPlayer ~= player then
-        playerIndices[lastPlayer] = index
+    for player in pairs(characterCache) do
+        if not playerIndices[player] then
+            characterCache[player] = nil
+        end
     end
 end
 
-for _, player in ipairs(Players:GetPlayers()) do
-    VisualRuntime.AddPlayer(player)
-end
-
-Players.PlayerAdded:Connect(VisualRuntime.AddPlayer)
-Players.PlayerRemoving:Connect(VisualRuntime.RemovePlayer)
+VisualRuntime.RefreshPlayers()
 
 local function getCharacterData(player)
     local character = player.Character
@@ -4148,6 +4132,8 @@ VisualRuntime.UpdateRate = math.clamp(
 VisualRuntime.UpdateInterval = 1 / VisualRuntime.UpdateRate
 VisualRuntime.Accumulator = VisualRuntime.UpdateInterval
 VisualRuntime.BaseVisualsWereEnabled = false
+VisualRuntime.PlayerRefreshInterval = 1
+VisualRuntime.NextPlayerRefreshAt = 0
 
 RunService.RenderStepped:Connect(function(deltaTime)
     if not FFTM_RUNNING then
@@ -4175,6 +4161,14 @@ RunService.RenderStepped:Connect(function(deltaTime)
     end
 
     VisualRuntime.BaseVisualsWereEnabled = true
+
+    local now = os.clock()
+    if now >= VisualRuntime.NextPlayerRefreshAt then
+        VisualRuntime.NextPlayerRefreshAt =
+            now + VisualRuntime.PlayerRefreshInterval
+        VisualRuntime.RefreshPlayers()
+    end
+
     VisualRuntime.Accumulator += deltaTime
 
     if VisualRuntime.Accumulator < VisualRuntime.UpdateInterval then
