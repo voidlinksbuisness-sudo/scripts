@@ -1,4 +1,4 @@
--- FFTM_MAIN_BUILD = "2026-08-25-NONPARRY-OPT-1"
+-- FFTM_MAIN_BUILD = "2026-08-25-REGISTER-FIX-1"
 --// WABI SABI UI
 loadstring(game:HttpGet("https://scripts.wabisabi.mom/wabi-sabi-ui-lib.lua"))()
 
@@ -22,7 +22,6 @@ local Main = Window:AddTab({
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local UIS = game:GetService("UserInputService")
-local HttpService = game:GetService("HttpService")
 local SelectedFolder = nil
 
 local LocalPlayer = Players.LocalPlayer
@@ -31,7 +30,7 @@ local Camera = workspace.CurrentCamera
 --==================================================
 -- FFTM REMOTE SESSION CONTROL
 --==================================================
-FFTM_MAIN_VERSION = "2026-08-25-NONPARRY-OPT-1"
+FFTM_MAIN_VERSION = "2026-08-25-REGISTER-FIX-1"
 FFTM_API_URL = "https://fftm-parry-api.voidlinksbuisness.workers.dev"
 FFTM_RUNNING = true
 FFTM_LAST_HEARTBEAT_AT = -1000000
@@ -55,7 +54,7 @@ end
 
 do
     local okGuid, guid = pcall(function()
-        return HttpService:GenerateGUID(false)
+        return game:GetService("HttpService"):GenerateGUID(false)
     end)
 
     FFTM_SESSION_ID = okGuid and guid
@@ -120,7 +119,7 @@ function FFTMGetJson(path, query)
     end
 
     local decodeOk, decoded = pcall(function()
-        return HttpService:JSONDecode(responseBody)
+        return game:GetService("HttpService"):JSONDecode(responseBody)
     end)
 
     if not decodeOk or type(decoded) ~= "table" then
@@ -242,54 +241,63 @@ _G.HealthESPMaxDistanceSquared = 50 * 50
 
 
 --// PLAYER HELPERS
-local visualPlayers = {}
-local visualPlayerIndices = {}
-local characterCache = {}
+local VisualRuntime = {
+    Players = {},
+    PlayerIndices = {},
+    CharacterCache = {},
+    HealthTextValues = {},
+    EspTracersWereActive = false,
+    PlayerHealthWasActive = false,
+    HealthHeadOffset = Vector3.new(0, 3, 0),
+}
 
-local function addVisualPlayer(player)
-    if visualPlayerIndices[player] then
+function VisualRuntime.AddPlayer(player)
+    if VisualRuntime.PlayerIndices[player] then
         return
     end
 
-    visualPlayers[#visualPlayers + 1] = player
-    visualPlayerIndices[player] = #visualPlayers
+    local players = VisualRuntime.Players
+    players[#players + 1] = player
+    VisualRuntime.PlayerIndices[player] = #players
 end
 
-local function removeVisualPlayer(player)
-    local index = visualPlayerIndices[player]
+function VisualRuntime.RemovePlayer(player)
+    local players = VisualRuntime.Players
+    local playerIndices = VisualRuntime.PlayerIndices
+    local index = playerIndices[player]
     if not index then
         return
     end
 
-    local lastIndex = #visualPlayers
-    local lastPlayer = visualPlayers[lastIndex]
+    local lastIndex = #players
+    local lastPlayer = players[lastIndex]
 
-    visualPlayers[index] = lastPlayer
-    visualPlayers[lastIndex] = nil
-    visualPlayerIndices[player] = nil
-    characterCache[player] = nil
+    players[index] = lastPlayer
+    players[lastIndex] = nil
+    playerIndices[player] = nil
+    VisualRuntime.CharacterCache[player] = nil
 
     if lastPlayer and lastPlayer ~= player then
-        visualPlayerIndices[lastPlayer] = index
+        playerIndices[lastPlayer] = index
     end
 end
 
 for _, player in ipairs(Players:GetPlayers()) do
-    addVisualPlayer(player)
+    VisualRuntime.AddPlayer(player)
 end
 
-Players.PlayerAdded:Connect(addVisualPlayer)
-Players.PlayerRemoving:Connect(removeVisualPlayer)
+Players.PlayerAdded:Connect(VisualRuntime.AddPlayer)
+Players.PlayerRemoving:Connect(VisualRuntime.RemovePlayer)
 
 local function getCharacterData(player)
     local character = player.Character
 
     if not character then
-        characterCache[player] = nil
+        VisualRuntime.CharacterCache[player] = nil
         return nil, nil
     end
 
-    local data = characterCache[player]
+    local data = VisualRuntime.CharacterCache[player]
 
     if not data or data.Character ~= character then
         data = {
@@ -298,7 +306,7 @@ local function getCharacterData(player)
             Root = character:FindFirstChild("HumanoidRootPart"),
         }
 
-        characterCache[player] = data
+        VisualRuntime.CharacterCache[player] = data
     else
         if not data.Humanoid or data.Humanoid.Parent ~= character then
             data.Humanoid = character:FindFirstChildOfClass("Humanoid")
@@ -337,12 +345,6 @@ end
 local espBoxes = {}
 local tracerLines = {}
 local healthTexts = {}
-local healthTextValues = {}
-local espTracersWereActive = false
-local playerHealthWasActive = false
-local lastSelfHealth = nil
-local lastSelfHealthViewport = nil
-local HEALTH_HEAD_OFFSET = Vector3.new(0, 3, 0)
 
 --// ESP CONFIG
 local DEFAULT_ESP_DISTANCE_SQUARED = 50 * 50
@@ -474,15 +476,15 @@ end
 --// ESP + TRACERS
 local function updateEspTracers()
     if not state.ESP and not state.Tracers then
-        if espTracersWereActive then
+        if VisualRuntime.EspTracersWereActive then
             hidePoolFrom(espBoxes, 1)
             hidePoolFrom(tracerLines, 1)
-            espTracersWereActive = false
+            VisualRuntime.EspTracersWereActive = false
         end
         return
     end
 
-    espTracersWereActive = true
+    VisualRuntime.EspTracersWereActive = true
     Camera = workspace.CurrentCamera or Camera
 
     if not Camera then
@@ -503,7 +505,7 @@ local function updateEspTracers()
     local tracerTransparency = 1 - (state.TracerTransparency / 100)
     local count = 0
 
-    for _, player in ipairs(visualPlayers) do
+    for _, player in ipairs(VisualRuntime.Players) do
         if player == LocalPlayer then
             continue
         end
@@ -594,7 +596,7 @@ local function updateHealth()
     if not Camera then
         myHealthText.Visible = false
         hidePoolFrom(healthTexts, 1)
-        playerHealthWasActive = false
+        VisualRuntime.PlayerHealthWasActive = false
         return
     end
 
@@ -609,13 +611,13 @@ local function updateHealth()
         if myHumanoid and myHumanoid.Health > 0 then
             local health = math.floor(myHumanoid.Health)
 
-            if lastSelfHealth ~= health then
-                lastSelfHealth = health
+            if VisualRuntime.LastSelfHealth ~= health then
+                VisualRuntime.LastSelfHealth = health
                 myHealthText.Text = "+ " .. health
             end
 
-            if lastSelfHealthViewport ~= viewport then
-                lastSelfHealthViewport = viewport
+            if VisualRuntime.LastSelfHealthViewport ~= viewport then
+                VisualRuntime.LastSelfHealthViewport = viewport
                 myHealthText.Position = Vector2.new(
                     viewport.X * 0.5,
                     viewport.Y * 0.5
@@ -624,11 +626,11 @@ local function updateHealth()
 
             myHealthText.Visible = true
         else
-            lastSelfHealth = nil
+            VisualRuntime.LastSelfHealth = nil
             myHealthText.Visible = false
         end
     else
-        lastSelfHealth = nil
+        VisualRuntime.LastSelfHealth = nil
         myHealthText.Visible = false
     end
 
@@ -637,25 +639,25 @@ local function updateHealth()
     --==================================================
 
     if not state.PlayerHealth then
-        if playerHealthWasActive then
+        if VisualRuntime.PlayerHealthWasActive then
             hidePoolFrom(healthTexts, 1)
-            playerHealthWasActive = false
+            VisualRuntime.PlayerHealthWasActive = false
         end
         return
     end
 
     if not myRoot then
         hidePoolFrom(healthTexts, 1)
-        playerHealthWasActive = false
+        VisualRuntime.PlayerHealthWasActive = false
         return
     end
 
-    playerHealthWasActive = true
+    VisualRuntime.PlayerHealthWasActive = true
     local myPosition = myRoot.Position
     local maxDistanceSquared = getHealthMaxDistanceSquared()
     local count = 0
 
-    for _, player in ipairs(visualPlayers) do
+    for _, player in ipairs(VisualRuntime.Players) do
         if player ~= LocalPlayer then
             count += 1
 
@@ -681,7 +683,7 @@ local function updateHealth()
 
                 if distanceSquared <= maxDistanceSquared then
                     local screenPosition, onScreen = WorldToScreen(
-                        position + HEALTH_HEAD_OFFSET
+                        position + VisualRuntime.HealthHeadOffset
                     )
 
                     if onScreen
@@ -694,8 +696,8 @@ local function updateHealth()
                         text.Position = screenPosition
 
                         local health = math.floor(humanoid.Health)
-                        if healthTextValues[count] ~= health then
-                            healthTextValues[count] = health
+                        if VisualRuntime.HealthTextValues[count] ~= health then
+                            VisualRuntime.HealthTextValues[count] = health
                             text.Text = "+ " .. health
                         end
 
@@ -4138,14 +4140,14 @@ RunService.RenderStepped:Connect(MainLoop)
 
 -- Base visuals do not need to perform projection and Drawing work at the
 -- monitor's full refresh rate. Auto Parry keeps its original loop above.
-local BASE_VISUAL_UPDATE_RATE = math.clamp(
+VisualRuntime.UpdateRate = math.clamp(
     tonumber(_G.FFTMVisualUpdateRate) or 30,
     1,
     120
 )
-local BASE_VISUAL_UPDATE_INTERVAL = 1 / BASE_VISUAL_UPDATE_RATE
-local baseVisualAccumulator = BASE_VISUAL_UPDATE_INTERVAL
-local baseVisualsWereEnabled = false
+VisualRuntime.UpdateInterval = 1 / VisualRuntime.UpdateRate
+VisualRuntime.Accumulator = VisualRuntime.UpdateInterval
+VisualRuntime.BaseVisualsWereEnabled = false
 
 RunService.RenderStepped:Connect(function(deltaTime)
     if not FFTM_RUNNING then
@@ -4163,23 +4165,23 @@ RunService.RenderStepped:Connect(function(deltaTime)
         or state.SelfHealth
 
     if not baseVisualsEnabled then
-        if baseVisualsWereEnabled then
+        if VisualRuntime.BaseVisualsWereEnabled then
             updateEspTracers()
             updateHealth()
         end
 
-        baseVisualsWereEnabled = false
+        VisualRuntime.BaseVisualsWereEnabled = false
         return
     end
 
-    baseVisualsWereEnabled = true
-    baseVisualAccumulator += deltaTime
+    VisualRuntime.BaseVisualsWereEnabled = true
+    VisualRuntime.Accumulator += deltaTime
 
-    if baseVisualAccumulator < BASE_VISUAL_UPDATE_INTERVAL then
+    if VisualRuntime.Accumulator < VisualRuntime.UpdateInterval then
         return
     end
 
-    baseVisualAccumulator %= BASE_VISUAL_UPDATE_INTERVAL
+    VisualRuntime.Accumulator %= VisualRuntime.UpdateInterval
     updateEspTracers()
     updateHealth()
 end)
