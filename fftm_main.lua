@@ -1,4 +1,4 @@
--- FFTM_MAIN_BUILD = "2026-08-24-CONFIG-UI-SYNC-1"
+-- FFTM_MAIN_BUILD = "2026-08-25-NONPARRY-OPT-1"
 --// WABI SABI UI
 loadstring(game:HttpGet("https://scripts.wabisabi.mom/wabi-sabi-ui-lib.lua"))()
 
@@ -22,6 +22,7 @@ local Main = Window:AddTab({
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local UIS = game:GetService("UserInputService")
+local HttpService = game:GetService("HttpService")
 local SelectedFolder = nil
 
 local LocalPlayer = Players.LocalPlayer
@@ -30,7 +31,7 @@ local Camera = workspace.CurrentCamera
 --==================================================
 -- FFTM REMOTE SESSION CONTROL
 --==================================================
-FFTM_MAIN_VERSION = "2026-08-24-CONFIG-UI-SYNC-1"
+FFTM_MAIN_VERSION = "2026-08-25-NONPARRY-OPT-1"
 FFTM_API_URL = "https://fftm-parry-api.voidlinksbuisness.workers.dev"
 FFTM_RUNNING = true
 FFTM_LAST_HEARTBEAT_AT = -1000000
@@ -54,7 +55,7 @@ end
 
 do
     local okGuid, guid = pcall(function()
-        return game:GetService("HttpService"):GenerateGUID(false)
+        return HttpService:GenerateGUID(false)
     end)
 
     FFTM_SESSION_ID = okGuid and guid
@@ -119,7 +120,7 @@ function FFTMGetJson(path, query)
     end
 
     local decodeOk, decoded = pcall(function()
-        return game:GetService("HttpService"):JSONDecode(responseBody)
+        return HttpService:JSONDecode(responseBody)
     end)
 
     if not decodeOk or type(decoded) ~= "table" then
@@ -241,9 +242,79 @@ _G.HealthESPMaxDistanceSquared = 50 * 50
 
 
 --// PLAYER HELPERS
-local function getRoot(player)
+local visualPlayers = {}
+local visualPlayerIndices = {}
+local characterCache = {}
+
+local function addVisualPlayer(player)
+    if visualPlayerIndices[player] then
+        return
+    end
+
+    visualPlayers[#visualPlayers + 1] = player
+    visualPlayerIndices[player] = #visualPlayers
+end
+
+local function removeVisualPlayer(player)
+    local index = visualPlayerIndices[player]
+    if not index then
+        return
+    end
+
+    local lastIndex = #visualPlayers
+    local lastPlayer = visualPlayers[lastIndex]
+
+    visualPlayers[index] = lastPlayer
+    visualPlayers[lastIndex] = nil
+    visualPlayerIndices[player] = nil
+    characterCache[player] = nil
+
+    if lastPlayer and lastPlayer ~= player then
+        visualPlayerIndices[lastPlayer] = index
+    end
+end
+
+for _, player in ipairs(Players:GetPlayers()) do
+    addVisualPlayer(player)
+end
+
+Players.PlayerAdded:Connect(addVisualPlayer)
+Players.PlayerRemoving:Connect(removeVisualPlayer)
+
+local function getCharacterData(player)
     local character = player.Character
-    return character and character:FindFirstChild("HumanoidRootPart")
+
+    if not character then
+        characterCache[player] = nil
+        return nil, nil
+    end
+
+    local data = characterCache[player]
+
+    if not data or data.Character ~= character then
+        data = {
+            Character = character,
+            Humanoid = character:FindFirstChildOfClass("Humanoid"),
+            Root = character:FindFirstChild("HumanoidRootPart"),
+        }
+
+        characterCache[player] = data
+    else
+        if not data.Humanoid or data.Humanoid.Parent ~= character then
+            data.Humanoid = character:FindFirstChildOfClass("Humanoid")
+        end
+
+        if not data.Root or data.Root.Parent ~= character then
+            data.Root = character:FindFirstChild("HumanoidRootPart")
+        end
+    end
+
+    return data.Humanoid, data.Root
+end
+
+local function getRoot(player)
+    local _, root = getCharacterData(player)
+    return root
 end
 
 local SELF_RADIUS = 4
@@ -266,6 +337,12 @@ end
 local espBoxes = {}
 local tracerLines = {}
 local healthTexts = {}
+local healthTextValues = {}
+local espTracersWereActive = false
+local playerHealthWasActive = false
+local lastSelfHealth = nil
+local lastSelfHealthViewport = nil
+local HEALTH_HEAD_OFFSET = Vector3.new(0, 3, 0)
 
 --// ESP CONFIG
 local DEFAULT_ESP_DISTANCE_SQUARED = 50 * 50
@@ -346,39 +423,6 @@ local function getHealthText(i)
     return text
 end
 
---// CHARACTER CACHE
-local characterCache = {}
-
-local function getCharacterData(player)
-    local character = player.Character
-
-    if not character then
-        return nil, nil
-    end
-
-    local data = characterCache[player]
-
-    if not data or data.Character ~= character then
-        data = {
-            Character = character,
-            Humanoid = character:FindFirstChildOfClass("Humanoid"),
-            Root = character:FindFirstChild("HumanoidRootPart"),
-        }
-
-        characterCache[player] = data
-    else
-        if not data.Humanoid then
-            data.Humanoid = character:FindFirstChildOfClass("Humanoid")
-        end
-
-        if not data.Root then
-            data.Root = character:FindFirstChild("HumanoidRootPart")
-        end
-    end
-
-    return data.Humanoid, data.Root
-end
-
 --// ESP BOX
 local function getEspBox(i)
     local box = espBoxes[i]
@@ -421,24 +465,34 @@ end
 --// HIDE UNUSED DRAWINGS
 local function hidePoolFrom(pool, fromIndex)
     for i = fromIndex, #pool do
-        pool[i].Visible = false
+        if pool[i].Visible then
+            pool[i].Visible = false
+        end
     end
 end
 
 --// ESP + TRACERS
-local function updateEspTracers(players)
+local function updateEspTracers()
     if not state.ESP and not state.Tracers then
+        if espTracersWereActive then
+            hidePoolFrom(espBoxes, 1)
+            hidePoolFrom(tracerLines, 1)
+            espTracersWereActive = false
+        end
+        return
+    end
+
+    espTracersWereActive = true
+    Camera = workspace.CurrentCamera or Camera
+
+    if not Camera then
         hidePoolFrom(espBoxes, 1)
         hidePoolFrom(tracerLines, 1)
         return
     end
 
     local viewport = Camera.ViewportSize
-
-    local origin = Vector2.new(
-        viewport.X / 2,
-        viewport.Y
-    )
+    local origin = Vector2.new(viewport.X * 0.5, viewport.Y)
 
     local myRoot = getRoot(LocalPlayer)
     local myPos = myRoot and myRoot.Position
@@ -446,81 +500,87 @@ local function updateEspTracers(players)
     local camPos = Camera.CFrame.Position
     local referencePos = myPos or camPos
     local maxDistanceSquared = getEspMaxDistanceSquared()
-    local count = #players
+    local tracerTransparency = 1 - (state.TracerTransparency / 100)
+    local count = 0
 
-    for i, player in ipairs(players) do
-        local box = getEspBox(i)
-        local line = getTracer(i)
+    for _, player in ipairs(visualPlayers) do
+        if player == LocalPlayer then
+            continue
+        end
+
+        count += 1
+
+        local box = espBoxes[count]
+        local line = tracerLines[count]
 
         local showBox = false
         local showLine = false
 
-        -- Don't draw ESP/tracers on ourselves
-        if player ~= LocalPlayer then
-            local root = getRoot(player)
+        local root = getRoot(player)
 
-            if root then
-                local pos = root.Position
-                local dx = pos.X - referencePos.X
-                local dy = pos.Y - referencePos.Y
-                local dz = pos.Z - referencePos.Z
-                local distanceSquared = dx * dx + dy * dy + dz * dz
+        if root then
+            local pos = root.Position
+            local dx = pos.X - referencePos.X
+            local dy = pos.Y - referencePos.Y
+            local dz = pos.Z - referencePos.Z
+            local distanceSquared = dx * dx + dy * dy + dz * dz
 
-                if distanceSquared <= maxDistanceSquared
-                    and not nearSelf(pos, myPos) then
+            if distanceSquared <= maxDistanceSquared
+                and not nearSelf(pos, myPos) then
 
-                    local screenPos, onScreen = WorldToScreen(pos)
+                local screenPos, onScreen = WorldToScreen(pos)
 
-                    if onScreen
-                        and screenPos.X >= 0
-                        and screenPos.X <= viewport.X
-                        and screenPos.Y >= 0
-                        and screenPos.Y <= viewport.Y then
+                if onScreen
+                    and screenPos.X >= 0
+                    and screenPos.X <= viewport.X
+                    and screenPos.Y >= 0
+                    and screenPos.Y <= viewport.Y then
 
-                        --// ESP
-                        if state.ESP then
-                            local dist = (camPos - pos).Magnitude
+                    --// ESP
+                    if state.ESP then
+                        box = box or getEspBox(count)
+                        local camDx = pos.X - camPos.X
+                        local camDy = pos.Y - camPos.Y
+                        local camDz = pos.Z - camPos.Z
+                        local distance = math.sqrt(
+                            camDx * camDx + camDy * camDy + camDz * camDz
+                        )
+                        local scale = math.clamp(
+                            1500 / math.max(distance, 0.001),
+                            8,
+                            400
+                        )
+                        local size = Vector2.new(scale, scale * 1.5)
 
-                            local scale = 1500 / dist
+                        box.Size = size
+                        box.Position = Vector2.new(
+                            screenPos.X - size.X * 0.5,
+                            screenPos.Y - size.Y * 0.5
+                        )
 
-                            if scale > 400 then
-                                scale = 400
-                            elseif scale < 8 then
-                                scale = 8
-                            end
+                        showBox = true
+                    end
 
-                            local size = Vector2.new(
-                                scale,
-                                scale * 1.5
-                            )
+                    --// TRACERS
+                    if state.Tracers then
+                        line = line or getTracer(count)
+                        line.From = origin
+                        line.To = screenPos
+                        line.Transparency = tracerTransparency
 
-                            box.Size = size
-
-                            box.Position = Vector2.new(
-                                screenPos.X - size.X / 2,
-                                screenPos.Y - size.Y / 2
-                            )
-
-                            showBox = true
-                        end
-
-                        --// TRACERS
-                        if state.Tracers then
-                            line.From = origin
-                            line.To = screenPos
-
-                            line.Transparency =
-                                1 - (state.TracerTransparency / 100)
-
-                            showLine = true
-                        end
+                        showLine = tracerTransparency > 0
                     end
                 end
             end
         end
 
-        box.Visible = showBox
-        line.Visible = showLine
+        if box and box.Visible ~= showBox then
+            box.Visible = showBox
+        end
+
+        if line and line.Visible ~= showLine then
+            line.Visible = showLine
+        end
     end
 
     hidePoolFrom(espBoxes, count + 1)
@@ -528,33 +588,47 @@ local function updateEspTracers(players)
 end
 
 --// HEALTH ESP
-local function updateHealth(players)
+local function updateHealth()
+    Camera = workspace.CurrentCamera or Camera
+
+    if not Camera then
+        myHealthText.Visible = false
+        hidePoolFrom(healthTexts, 1)
+        playerHealthWasActive = false
+        return
+    end
+
     local viewport = Camera.ViewportSize
+    local myHumanoid, myRoot = getCharacterData(LocalPlayer)
 
     --==================================================
     -- SELF HEALTH
     --==================================================
 
     if state.SelfHealth then
-        local myCharacter = LocalPlayer.Character
-
-        local myHumanoid = myCharacter
-            and myCharacter:FindFirstChildOfClass("Humanoid")
-
         if myHumanoid and myHumanoid.Health > 0 then
-            myHealthText.Text =
-                "+ " .. math.floor(myHumanoid.Health)
+            local health = math.floor(myHumanoid.Health)
 
-            myHealthText.Position = Vector2.new(
-                viewport.X / 2,
-                viewport.Y / 2
-            )
+            if lastSelfHealth ~= health then
+                lastSelfHealth = health
+                myHealthText.Text = "+ " .. health
+            end
+
+            if lastSelfHealthViewport ~= viewport then
+                lastSelfHealthViewport = viewport
+                myHealthText.Position = Vector2.new(
+                    viewport.X * 0.5,
+                    viewport.Y * 0.5
+                )
+            end
 
             myHealthText.Visible = true
         else
+            lastSelfHealth = nil
             myHealthText.Visible = false
         end
     else
+        lastSelfHealth = nil
         myHealthText.Visible = false
     end
 
@@ -563,33 +637,29 @@ local function updateHealth(players)
     --==================================================
 
     if not state.PlayerHealth then
-        hidePoolFrom(healthTexts, 1)
+        if playerHealthWasActive then
+            hidePoolFrom(healthTexts, 1)
+            playerHealthWasActive = false
+        end
         return
     end
-
-    local myCharacter = LocalPlayer.Character
-
-    if not myCharacter then
-        hidePoolFrom(healthTexts, 1)
-        return
-    end
-
-    local myRoot = myCharacter:FindFirstChild("HumanoidRootPart")
 
     if not myRoot then
         hidePoolFrom(healthTexts, 1)
+        playerHealthWasActive = false
         return
     end
 
+    playerHealthWasActive = true
     local myPosition = myRoot.Position
     local maxDistanceSquared = getHealthMaxDistanceSquared()
     local count = 0
 
-    for _, player in ipairs(players) do
+    for _, player in ipairs(visualPlayers) do
         if player ~= LocalPlayer then
             count += 1
 
-            local text = getHealthText(count)
+            local text = healthTexts[count]
             local humanoid, root = getCharacterData(player)
 
             local visible = false
@@ -611,7 +681,7 @@ local function updateHealth(players)
 
                 if distanceSquared <= maxDistanceSquared then
                     local screenPosition, onScreen = WorldToScreen(
-                        position + Vector3.new(0, 3, 0)
+                        position + HEALTH_HEAD_OFFSET
                     )
 
                     if onScreen
@@ -620,20 +690,23 @@ local function updateHealth(players)
                         and screenPosition.Y >= 0
                         and screenPosition.Y <= viewport.Y then
 
-                        text.Position = Vector2.new(
-                            screenPosition.X,
-                            screenPosition.Y
-                        )
+                        text = text or getHealthText(count)
+                        text.Position = screenPosition
 
-                        text.Text =
-                            "+ " .. math.floor(humanoid.Health)
+                        local health = math.floor(humanoid.Health)
+                        if healthTextValues[count] ~= health then
+                            healthTextValues[count] = health
+                            text.Text = "+ " .. health
+                        end
 
                         visible = true
                     end
                 end
             end
 
-            text.Visible = visible
+            if text and text.Visible ~= visible then
+                text.Visible = visible
+            end
         end
     end
 
@@ -4063,16 +4136,52 @@ FFTMSendHeartbeat()
 RunService.RenderStepped:Connect(MainLoop)
 --RunService.Heartbeat:Connect(MainLoop)
 
--- Existing base visual loop
-RunService.RenderStepped:Connect(function()
+-- Base visuals do not need to perform projection and Drawing work at the
+-- monitor's full refresh rate. Auto Parry keeps its original loop above.
+local BASE_VISUAL_UPDATE_RATE = math.clamp(
+    tonumber(_G.FFTMVisualUpdateRate) or 30,
+    1,
+    120
+)
+local BASE_VISUAL_UPDATE_INTERVAL = 1 / BASE_VISUAL_UPDATE_RATE
+local baseVisualAccumulator = BASE_VISUAL_UPDATE_INTERVAL
+local baseVisualsWereEnabled = false
+
+RunService.RenderStepped:Connect(function(deltaTime)
     if not FFTM_RUNNING then
         return
     end
 
-    local players = Players:GetPlayers()
-    updateEspTracers(players)
-    updateHealth(players)
+    -- Target selection markers retain their existing render-rate behavior.
+    -- They are separate from the base ESP/health visual pipeline.
     UpdateSelectedMarkers()
+
+    local baseVisualsEnabled =
+        state.ESP
+        or state.Tracers
+        or state.PlayerHealth
+        or state.SelfHealth
+
+    if not baseVisualsEnabled then
+        if baseVisualsWereEnabled then
+            updateEspTracers()
+            updateHealth()
+        end
+
+        baseVisualsWereEnabled = false
+        return
+    end
+
+    baseVisualsWereEnabled = true
+    baseVisualAccumulator += deltaTime
+
+    if baseVisualAccumulator < BASE_VISUAL_UPDATE_INTERVAL then
+        return
+    end
+
+    baseVisualAccumulator %= BASE_VISUAL_UPDATE_INTERVAL
+    updateEspTracers()
+    updateHealth()
 end)
 
 print("Free Fortnite Cheats TM | Wabi tabs safe-fallback build loaded")
