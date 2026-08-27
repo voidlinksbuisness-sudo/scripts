@@ -1,4 +1,4 @@
--- FFTM_MAIN_BUILD = "2026-08-25-MATCHA-CACHE-FIX-1"
+-- FFTM_MAIN_BUILD = "2026-08-27-VISUAL-POOL-FIX-1"
 --// WABI SABI UI
 loadstring(game:HttpGet("https://scripts.wabisabi.mom/wabi-sabi-ui-lib.lua"))()
 
@@ -30,7 +30,7 @@ local Camera = workspace.CurrentCamera
 --==================================================
 -- FFTM REMOTE SESSION CONTROL
 --==================================================
-FFTM_MAIN_VERSION = "2026-08-25-MATCHA-CACHE-FIX-1"
+FFTM_MAIN_VERSION = "2026-08-27-VISUAL-POOL-FIX-1"
 FFTM_API_URL = "https://fftm-parry-api.voidlinksbuisness.workers.dev"
 FFTM_RUNNING = true
 FFTM_LAST_HEARTBEAT_AT = -1000000
@@ -273,7 +273,16 @@ end
 
 VisualRuntime.RefreshPlayers()
 
+function VisualRuntime.IsPlayerActive(player)
+    return player == LocalPlayer or player.Parent == Players
+end
+
 local function getCharacterData(player)
+    if not VisualRuntime.IsPlayerActive(player) then
+        VisualRuntime.CharacterCache[player] = nil
+        return nil, nil
+    end
+
     local character = player.Character
 
     if not character then
@@ -451,8 +460,10 @@ end
 --// HIDE UNUSED DRAWINGS
 local function hidePoolFrom(pool, fromIndex)
     for i = fromIndex, #pool do
-        if pool[i].Visible then
-            pool[i].Visible = false
+        local drawing = pool[i]
+
+        if drawing and drawing.Visible then
+            drawing.Visible = false
         end
     end
 end
