@@ -1,4 +1,4 @@
--- FFTM_MAIN_BUILD = "2026-08-27-VISUAL-POOL-FIX-1"
+-- FFTM_MAIN_BUILD = "2026-08-28-TOOLTIPS-1"
 --// WABI SABI UI
 loadstring(game:HttpGet("https://scripts.wabisabi.mom/wabi-sabi-ui-lib.lua"))()
 
@@ -30,7 +30,7 @@ local Camera = workspace.CurrentCamera
 --==================================================
 -- FFTM REMOTE SESSION CONTROL
 --==================================================
-FFTM_MAIN_VERSION = "2026-08-27-VISUAL-POOL-FIX-1"
+FFTM_MAIN_VERSION = "2026-08-28-TOOLTIPS-1"
 FFTM_API_URL = "https://fftm-parry-api.voidlinksbuisness.workers.dev"
 FFTM_RUNNING = true
 FFTM_LAST_HEARTBEAT_AT = -1000000
@@ -720,6 +720,7 @@ local UIToggles = {}
 UIToggles.ESP = Main:AddToggle({
     Id = "esp",
     Title = "ESP",
+    Description = "Draws a box around other players within the ESP distance.",
     Default = false,
 
     Callback = function(value)
@@ -731,6 +732,7 @@ UIToggles.ESP = Main:AddToggle({
 UIToggles.Tracers = Main:AddToggle({
     Id = "tracers",
     Title = "Tracers",
+    Description = "Draws a line from the bottom of the screen to visible players.",
     Default = false,
 
     Callback = function(value)
@@ -742,6 +744,7 @@ UIToggles.Tracers = Main:AddToggle({
 local TracerTransparencySlider = Main:AddSlider({
     Id = "tracer_transparency",
     Title = "Tracer Transparency",
+    Description = "Sets tracer visibility: 0 is solid and 100 is invisible.",
     Min = 0,
     Max = 100,
     Default = 0,
@@ -755,6 +758,7 @@ local TracerTransparencySlider = Main:AddSlider({
 local ESPDistanceSlider = Main:AddSlider({
     Id = "esp_distance",
     Title = "ESP Distance",
+    Description = "Maximum box and tracer range in studs.",
     Min = 10,
     Max = 500,
     Default = 50,
@@ -775,6 +779,7 @@ local ESPDistanceSlider = Main:AddSlider({
 UIToggles.PlayerHealth = Main:AddToggle({
     Id = "player_health",
     Title = "Player Health",
+    Description = "Shows each nearby player's current health above their character.",
     Default = false,
 
     Callback = function(value)
@@ -786,6 +791,7 @@ UIToggles.PlayerHealth = Main:AddToggle({
 local HealthESPDistanceSlider = Main:AddSlider({
     Id = "player_health_distance",
     Title = "Health ESP Distance",
+    Description = "Maximum range for player health labels in studs.",
     Min = 10,
     Max = 500,
     Default = 50,
@@ -805,6 +811,7 @@ local HealthESPDistanceSlider = Main:AddSlider({
 UIToggles.SelfHealth = Main:AddToggle({
     Id = "self_health",
     Title = "Self Health",
+    Description = "Shows your current health at the center of the screen.",
     Default = false,
 
     Callback = function(value)
@@ -1049,6 +1056,7 @@ if type(FFTM_ADMIN_KEY) == "string"
     FFTMAdminDropdown = SafeAddDropdown(FFTMAdminTab, {
         Id = "admin_active_session",
         Title = "FFTM Users In This Server",
+        Description = "Selects a player's newest active FFTM session in this server.",
         Options = initialOptions,
         Default = initialOptions[1],
 
@@ -1061,6 +1069,7 @@ if type(FFTM_ADMIN_KEY) == "string"
 
     SafeAddButton(FFTMAdminTab, {
         Title = "Refresh Users",
+        Description = "Refreshes the list of active FFTM sessions in this server.",
 
         Callback = function()
             local _, sessions = FFTMRefreshAdminDropdown()
@@ -1075,6 +1084,7 @@ if type(FFTM_ADMIN_KEY) == "string"
 
     SafeAddButton(FFTMAdminTab, {
         Title = "Shutdown Selected",
+        Description = "Queues the selected FFTM session to close on its next heartbeat.",
 
         Callback = function()
             if not FFTM_ADMIN_SELECTED_SESSION then
@@ -1101,6 +1111,7 @@ if type(FFTM_ADMIN_KEY) == "string"
 
     SafeAddButton(FFTMAdminTab, {
         Title = "Enable Selected",
+        Description = "Re-enables the selected FFTM session after a shutdown command.",
 
         Callback = function()
             if not FFTM_ADMIN_SELECTED_SESSION then
@@ -1124,6 +1135,7 @@ end
 UIToggles.AutoParry = SafeAddToggle(AutoParryTab, {
     Id = "auto_parry",
     Title = "Auto Parry",
+    Description = "Automatically parries recognized attacks using the configured timing.",
     Default = true,
     Callback = function(value)
         AutoParryToggle.Set(value)
@@ -1133,6 +1145,7 @@ UIToggles.AutoParry = SafeAddToggle(AutoParryTab, {
 UIToggles.AutoDodge = SafeAddToggle(AutoParryTab, {
     Id = "auto_dodge",
     Title = "Auto Dodge / Heavy",
+    Description = "Automatically dodges heavy attacks when no counter mode handles them.",
     Default = true,
     Callback = function(value)
         AutoDodgeToggle.Set(value)
@@ -1142,6 +1155,7 @@ UIToggles.AutoDodge = SafeAddToggle(AutoParryTab, {
 UIToggles.AutoCounter = SafeAddToggle(AutoParryTab, {
     Id = "auto_counter",
     Title = "Auto Counter",
+    Description = "Automatically performs the standard counter against heavy attacks.",
     Default = false,
     Callback = function(value)
         AutoCounterToggle.Set(value)
@@ -1151,6 +1165,7 @@ UIToggles.AutoCounter = SafeAddToggle(AutoParryTab, {
 UIToggles.AutoAliCounter = SafeAddToggle(AutoParryTab, {
     Id = "auto_ali_counter",
     Title = "Auto Ali Counter",
+    Description = "Moves toward the target and performs the Ali counter against heavy attacks.",
     Default = false,
     Callback = function(value)
         AutoAliCounterToggle.Set(value)
@@ -1160,6 +1175,7 @@ UIToggles.AutoAliCounter = SafeAddToggle(AutoParryTab, {
 UIToggles.AutoPlay = SafeAddToggle(AutoParryTab, {
     Id = "auto_play",
     Title = "Auto Play",
+    Description = "Automatically presses notes during the supported rhythm minigame.",
     Default = true,
     Callback = function(value)
         AutoPlayToggle.Set(value)
@@ -1169,6 +1185,7 @@ UIToggles.AutoPlay = SafeAddToggle(AutoParryTab, {
 UIToggles.ParryDebug = SafeAddToggle(AutoParryTab, {
     Id = "parry_debug",
     Title = "Debug Parry",
+    Description = "Prints detailed parry timing and latency diagnostics after a parry.",
     Default = false,
     Callback = function(value)
         ParryDebugToggle.Set(value)
@@ -1178,6 +1195,7 @@ UIToggles.ParryDebug = SafeAddToggle(AutoParryTab, {
 UIToggles.AutoTargetNearest = SafeAddToggle(TargetingTab, {
     Id = "auto_target_nearest",
     Title = "Auto Target Nearest",
+    Description = "Continuously refreshes targeting to the nearest valid character(s).",
     Default = false,
     Callback = function(value)
         AutoTargetNearest.Set(value)
@@ -1187,6 +1205,7 @@ UIToggles.AutoTargetNearest = SafeAddToggle(TargetingTab, {
 UIToggles.MultipleTargets = SafeAddToggle(TargetingTab, {
     Id = "multiple_targets",
     Title = "Multiple Targets",
+    Description = "Lets automatic targeting select up to the three nearest valid characters.",
     Default = true,
     Callback = function(value)
         MultiTarget.Set(value)
@@ -1196,6 +1215,7 @@ UIToggles.MultipleTargets = SafeAddToggle(TargetingTab, {
 UIToggles.IncludeLocalCharacter = SafeAddToggle(TargetingTab, {
     Id = "include_local_character",
     Title = "Include Local Character",
+    Description = "Allows your own character to be included in the target list.",
     Default = false,
     Callback = function(value)
         IncludeLocalCharacter = value
@@ -1205,6 +1225,7 @@ UIToggles.IncludeLocalCharacter = SafeAddToggle(TargetingTab, {
 UIToggles.TargetFacingYou = SafeAddToggle(TargetingTab, {
     Id = "target_facing_you",
     Title = "Target Facing You",
+    Description = "Only handles normal attacks when the target is facing toward you.",
     Default = false,
     Callback = function(value)
         TargetFacingYou.Set(value)
@@ -1214,6 +1235,7 @@ UIToggles.TargetFacingYou = SafeAddToggle(TargetingTab, {
 UIToggles.YouFacingTarget = SafeAddToggle(TargetingTab, {
     Id = "you_facing_target",
     Title = "You Facing Target",
+    Description = "Only handles normal attacks when you are facing toward the target.",
     Default = true,
     Callback = function(value)
         YouFacingTarget.Set(value)
@@ -1223,6 +1245,7 @@ UIToggles.YouFacingTarget = SafeAddToggle(TargetingTab, {
 UIToggles.HeightMultiplier = SafeAddToggle(ParryConfigTab, {
     Id = "height_multiplier",
     Title = "Height Multiplier",
+    Description = "Adjusts reaction timing using the target's current height multiplier.",
     Default = true,
     Callback = function(value)
         HeightToggle.Set(value)
@@ -1232,6 +1255,7 @@ UIToggles.HeightMultiplier = SafeAddToggle(ParryConfigTab, {
 UIToggles.PingCompensation = SafeAddToggle(ParryConfigTab, {
     Id = "ping_compensation",
     Title = "Ping Compensation",
+    Description = "Starts parries earlier by half of the measured network ping.",
     Default = true,
     Callback = function(value)
         PingCompensateToggle.Set(value)
@@ -3108,6 +3132,7 @@ function BuildTimingControls()
                 local slider = SafeAddSlider(ParryConfigTab, {
                     Id = sliderId,
                     Title = style .. " | " .. displayName .. " (ms)",
+                    Description = "Sets the reaction delay for this animation in milliseconds.",
                     Min = 0,
                     Max = 1000,
                     Default = math.floor((currentSeconds or 0) * 1000 + 0.5),
@@ -3138,6 +3163,7 @@ BuildTimingControls()
 local AutoParryRangeSlider = SafeAddSlider(ParryConfigTab, {
     Id = "auto_parry_range",
     Title = "Auto Parry Range",
+    Description = "Maximum distance in studs at which attacks can trigger Auto Parry.",
     Min = 1,
     Max = 80,
     Default = AutoParryRange,
@@ -3149,6 +3175,7 @@ local AutoParryRangeSlider = SafeAddSlider(ParryConfigTab, {
 local ProbabilityToParrySlider = SafeAddSlider(ParryConfigTab, {
     Id = "probability_to_parry",
     Title = "Probability To Parry",
+    Description = "Percentage chance that a valid detected attack will be handled.",
     Min = 1,
     Max = 100,
     Default = ProbabilityToParry,
@@ -3160,6 +3187,7 @@ local ProbabilityToParrySlider = SafeAddSlider(ParryConfigTab, {
 local ParryOffsetSlider = SafeAddSlider(ParryConfigTab, {
     Id = "parry_offset_ms",
     Title = "Parry Offset (ms)",
+    Description = "Shifts every parry earlier with negative values or later with positive values.",
     Min = -100,
     Max = 100,
     Default = math.floor(ParryOffset * 1000),
@@ -3171,6 +3199,7 @@ local ParryOffsetSlider = SafeAddSlider(ParryConfigTab, {
 local ParryWindowSlider = SafeAddSlider(ParryConfigTab, {
     Id = "parry_window_ms",
     Title = "Parry Window (ms)",
+    Description = "How long after the calculated start time a parry may still execute.",
     Min = 0,
     Max = 1000,
     Default = math.floor(ParryWindow * 1000),
@@ -3182,6 +3211,7 @@ local ParryWindowSlider = SafeAddSlider(ParryConfigTab, {
 local MaxCycleRangeSlider = SafeAddSlider(TargetingTab, {
     Id = "max_cycle_range",
     Title = "Max Cycle Range",
+    Description = "Maximum distance in studs for manual and automatic target selection.",
     Min = 7,
     Max = 50,
     Default = MaxCycleRange,
@@ -3334,6 +3364,11 @@ local function AddKeybindControl(spec)
     local control = SafeControl(KeybindsTab, "AddKeybind", {
         Id = "keybind_" .. spec.Id,
         Title = spec.Title,
+        Description = spec.Id == "menu_toggle"
+            and "Key used to minimize or restore the menu. Press Delete to clear it."
+            or spec.Id == "cycle_target"
+            and "Key used to select the next in-range target. Press Delete to clear it."
+            or "Pressing this key toggles the matching feature. Press Delete to clear it.",
         Default = spec.KeyName,
         Mode = "Toggle",
 
@@ -3806,6 +3841,7 @@ function SetupPresetConfigUI()
     SafeAddDropdown(ConfigTab, {
         Id = "config_profile",
         Title = "Config",
+        Description = "Selects which local preset slot Save and Load will use.",
         Options = ConfigNames,
         Default = SelectedConfig,
 
@@ -3817,6 +3853,7 @@ function SetupPresetConfigUI()
 
     SafeAddButton(ConfigTab, {
         Title = "Save",
+        Description = "Saves the current toggles, sliders, theme, whitelist, and keybinds.",
 
         Callback = function()
             Configs[SelectedConfig] = CaptureConfig()
@@ -3839,6 +3876,7 @@ function SetupPresetConfigUI()
 
     SafeAddButton(ConfigTab, {
         Title = "Load",
+        Description = "Loads the selected preset and synchronizes its values with the UI.",
 
         Callback = function()
             -- Re-read the disk copy first. This makes Load use the persisted
@@ -3874,6 +3912,7 @@ function SetupPresetConfigUI()
     SafeAddDropdown(ConfigTab, {
         Id = "config_theme",
         Title = "Theme",
+        Description = "Changes the menu's colors and visual style immediately.",
         Options = Library.Themes,
         Default = "AmethystDark",
 
@@ -3885,6 +3924,7 @@ function SetupPresetConfigUI()
 
     SafeAddButton(ConfigTab, {
         Title = "Clear Drawings",
+        Description = "Immediately hides all base ESP, tracer, and health Drawing objects.",
 
         Callback = function()
             myHealthText.Visible = false
@@ -3912,6 +3952,7 @@ SetupPresetConfigUI()
 function SetupTargetFolderUI()
     SafeAddButton(TargetingTab, {
         Title = "Cycle Target Now",
+        Description = "Manually selects the next valid target within Max Cycle Range.",
 
         Callback = function()
             print("[Target] UI cycle button pressed")
@@ -3921,6 +3962,7 @@ function SetupTargetFolderUI()
 
     SafeAddButton(TargetingTab, {
         Title = "Whitelist Selected Target(s)",
+        Description = "Excludes the currently selected target(s) from future selection.",
 
         Callback = function()
             if #TargetCharacters == 0 then
@@ -3949,6 +3991,7 @@ function SetupTargetFolderUI()
 
     SafeAddButton(TargetingTab, {
         Title = "Remove Last Selected From Whitelist",
+        Description = "Allows the last selected target(s) to be selected again.",
 
         Callback = function()
             local removed = {}
@@ -3975,6 +4018,7 @@ function SetupTargetFolderUI()
 
     SafeAddButton(TargetingTab, {
         Title = "Clear Whitelist",
+        Description = "Removes every target from the exclusion list.",
 
         Callback = function()
             table.clear(TargetSelectionState.Whitelist)
@@ -4002,6 +4046,7 @@ function SetupTargetFolderUI()
         SafeAddDropdown(TargetingTab, {
             Id = "live_folder",
             Title = "Live Folder",
+            Description = "Chooses the workspace folder that contains target characters.",
             Options = folders,
             Default = defaultFolder,
             Callback = function(value)
