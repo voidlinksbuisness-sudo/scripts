@@ -177,7 +177,7 @@ local Window = Library:CreateWindow({
 })
 
 Library.Raw:SetBackgroundImage(
-    "https://raw.githubusercontent.com/voidlinksbuisness-sudo/scripts/main/assets/fftm-ui-background.png",
+    "https://raw.githubusercontent.com/voidlinksbuisness-sudo/scripts/748e48118250bda21774d36a941578a2eba08eb3/assets/fftm-ui-background.png",
     0.38,
     1,
     1
