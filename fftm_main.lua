@@ -1,4 +1,4 @@
--- FFTM_MAIN_BUILD = "2026-08-28-INS-UI-1"
+-- FFTM_MAIN_BUILD = "2026-08-28-PARRY-LAYOUT-1"
 --// INS UI
 local Library = {
     Raw = loadstring(game:HttpGet(
@@ -139,6 +139,13 @@ function Library:CreateWindow(config)
             return row
         end
 
+        function tab:AddSection(title, side, description)
+            return setmetatable({
+                Raw = self.Raw,
+                Section = self.Raw:Section(title, side, description)
+            }, { __index = self })
+        end
+
         return tab
     end
 
@@ -200,7 +207,7 @@ local Camera = workspace.CurrentCamera
 --==================================================
 -- FFTM REMOTE SESSION CONTROL
 --==================================================
-FFTM_MAIN_VERSION = "2026-08-28-INS-UI-1"
+FFTM_MAIN_VERSION = "2026-08-28-PARRY-LAYOUT-1"
 FFTM_API_URL = "https://fftm-parry-api.voidlinksbuisness.workers.dev"
 FFTM_RUNNING = true
 FFTM_LAST_HEARTBEAT_AT = -1000000
@@ -1116,6 +1123,18 @@ local ParryConfigTab = SafeAddTab("Parry Config", "settings")
 local ConfigTab      = SafeAddTab("Config", "settings")
 local KeybindsTab    = SafeAddTab("Keybinds", "keyboard")
 
+-- Split Parry Config into INS cards like the reference layout. These are
+-- presentation-only proxies; every control keeps its original callback and
+-- saved-setting handle.
+ParryConfigTab.Section.Name = "Core Timing"
+ParryConfigTab.Section.Side = "Left"
+ParryConfigTab.Section.Desc = "Global range, probability, offset, and timing-window controls."
+ParryConfigTab.Modifiers = ParryConfigTab:AddSection(
+    "Timing Modifiers",
+    "Right",
+    "Optional adjustments applied to calculated reaction timing."
+)
+
 -- Admin controls are created only when the private loader supplied
 -- _G.FFTM_ADMIN_KEY. This avoids brittle username spelling/case checks.
 if type(FFTM_ADMIN_KEY) == "string"
@@ -1412,7 +1431,7 @@ UIToggles.YouFacingTarget = SafeAddToggle(TargetingTab, {
     end
 })
 
-UIToggles.HeightMultiplier = SafeAddToggle(ParryConfigTab, {
+UIToggles.HeightMultiplier = SafeAddToggle(ParryConfigTab.Modifiers, {
     Id = "height_multiplier",
     Title = "Height Multiplier",
     Description = "Adjusts reaction timing using the target's current height multiplier.",
@@ -1422,7 +1441,7 @@ UIToggles.HeightMultiplier = SafeAddToggle(ParryConfigTab, {
     end
 })
 
-UIToggles.PingCompensation = SafeAddToggle(ParryConfigTab, {
+UIToggles.PingCompensation = SafeAddToggle(ParryConfigTab.Modifiers, {
     Id = "ping_compensation",
     Title = "Ping Compensation",
     Description = "Starts parries earlier by half of the measured network ping.",
@@ -3272,8 +3291,17 @@ function BuildTimingControls()
     end
     table.sort(styleNames)
 
-    for _, style in ipairs(styleNames) do
+    for styleIndex, style in ipairs(styleNames) do
         local animations = grouped[style]
+        local sectionTitle = tostring(style)
+            :gsub("Anims$", "")
+            :gsub("Other", " Other")
+            .. " Timings"
+        local styleSection = ParryConfigTab:AddSection(
+            sectionTitle,
+            styleIndex % 2 == 1 and "Left" or "Right",
+            "Reaction delays for " .. sectionTitle:gsub(" Timings$", "") .. " attacks."
+        )
 
         table.sort(animations, function(a, b)
             return tostring(a.Info.DisplayName or a.AnimationId)
@@ -3299,9 +3327,9 @@ function BuildTimingControls()
                     .. "_"
                     .. _sanitizeTimingId(animationId)
 
-                local slider = SafeAddSlider(ParryConfigTab, {
+                local slider = SafeAddSlider(styleSection, {
                     Id = sliderId,
-                    Title = style .. " | " .. displayName .. " (ms)",
+                    Title = displayName .. " (ms)",
                     Description = "Sets the reaction delay for this animation in milliseconds.",
                     Min = 0,
                     Max = 1000,
@@ -3327,7 +3355,7 @@ end
 BuildTimingControls()
 
 --==================================================
--- WABI CONTROLS FOR GAKURAN RUNTIME VALUES
+-- INS CONTROLS FOR GAKURAN RUNTIME VALUES
 --==================================================
 
 local AutoParryRangeSlider = SafeAddSlider(ParryConfigTab, {
