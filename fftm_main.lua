@@ -1,17 +1,187 @@
--- FFTM_MAIN_BUILD = "2026-08-28-TOOLTIPS-1"
---// WABI SABI UI
-loadstring(game:HttpGet("https://scripts.wabisabi.mom/wabi-sabi-ui-lib.lua"))()
+-- FFTM_MAIN_BUILD = "2026-08-28-INS-UI-1"
+--// INS UI
+local Library = {
+    Raw = loadstring(game:HttpGet(
+        "https://raw.githubusercontent.com/neaxusxgod-png/INS-ui/506859d3787450b6296254b1bb05a9c6d77ebeb2/uilib.min.lua"
+    ))() or INSUI
+}
 
-local Library = WabiSabi
+Library.Themes = Library.Raw:ThemePresets()
+
+function Library:AdaptRow(row)
+    row.SetValue = row.Set
+    row.SetState = row.Set
+    row.GetValue = row.Get
+    return row
+end
+
+function Library:CreateWindow(config)
+    local rawWindow = self.Raw:CreateWindow({
+        title = config.Title,
+        subtitle = config.SubTitle,
+        size = Vector2.new(760, 560),
+        menuKey = "none",
+        theme = "Waifu",
+        opacity = 0.94,
+        rounding = 1,
+        rowLines = true,
+        checkboxStyle = false,
+        keybindOverlay = true,
+        smartFps = true,
+        gameInput = true,
+        spotlight = true,
+        autoSave = false,
+        startOpen = true,
+    })
+    local window = { Raw = rawWindow }
+
+    function window:AddTab(tabConfig)
+        local rawTab = self.Raw:Tab(tabConfig.Title, tabConfig.Icon)
+        local tab = {
+            Raw = rawTab,
+            Section = rawTab:Section(tabConfig.Title, "Full")
+        }
+
+        function tab:AddToggle(control)
+            return Library:AdaptRow(self.Section:Toggle(
+                control.Title,
+                control.Default,
+                control.Callback,
+                control.Description
+            ))
+        end
+
+        function tab:AddSlider(control)
+            return Library:AdaptRow(self.Section:Slider(
+                control.Title,
+                control.Default,
+                control.Step or 1,
+                control.Min,
+                control.Max,
+                control.Suffix or "",
+                control.Callback,
+                control.Description
+            ))
+        end
+
+        function tab:AddDropdown(control)
+            local row
+            row = self.Section:Dropdown(
+                control.Title,
+                control.Default == nil and {} or { control.Default },
+                control.Options or {},
+                false,
+                function(values)
+                    control.Callback(values and values[1])
+                end,
+                control.Description,
+                true
+            )
+            row.SetValue = function(_, value)
+                return row:Set(value == nil and {} or { value })
+            end
+            row.SetState = row.SetValue
+            row.GetValue = function()
+                return row.Value and row.Value[1]
+            end
+            row.SetOptions = row.UpdateChoices
+            row.SetValues = row.UpdateChoices
+            return row
+        end
+
+        function tab:AddButton(control)
+            return Library:AdaptRow(self.Section:Button(
+                control.Title,
+                control.Callback,
+                control.Description
+            ))
+        end
+
+        function tab:AddKeybind(control)
+            local row
+            row = self.Section:Keybind(
+                control.Title,
+                control.Default or "none",
+                function(value)
+                    if type(value) == "boolean" then
+                        if value or row.Mode == "Toggle" then
+                            control.Callback()
+                        end
+                    elseif type(value) == "string" then
+                        if string.lower(value) == "delete" then
+                            row.Value = "none"
+                            value = nil
+                        end
+                        if control.ChangedCallback then
+                            control.ChangedCallback(value)
+                        end
+                    end
+                end,
+                control.Description
+            )
+
+            -- INS polls attached binds for actions. Pointing this keybind row
+            -- at itself preserves its dedicated keybind appearance while also
+            -- making it participate in that polling path.
+            row.Bind = row
+            row.Mode = control.Mode or "Hold"
+            row.SetValue = function(_, value, mode)
+                row.Value = value and string.lower(tostring(value)) or "none"
+                row.Mode = mode or row.Mode
+                if control.ChangedCallback then
+                    control.ChangedCallback(row.Value)
+                end
+                return row
+            end
+            row.GetValue = function()
+                return row.Value
+            end
+            return row
+        end
+
+        return tab
+    end
+
+    function window:Destroy()
+        self.Raw:Destroy()
+    end
+
+    window.Unload = window.Destroy
+    return window
+end
+
+function Library:Notify(config)
+    self.Raw:Notify(
+        tostring(config.Title or "Notice"),
+        tostring(config.Content or ""),
+        config.Duration or 4
+    )
+end
+
+function Library:Minimize()
+    self.Raw:Toggle()
+end
+
+function Library:SetTheme(name)
+    local selected = name == "AmethystDark" and "Grape" or name
+    self.Raw:ApplyThemePreset(selected)
+end
+
+function Library:Unload()
+    self.Raw:Destroy()
+end
 
 local Window = Library:CreateWindow({
     Title = "Free Fortnite Cheats TM",
     SubTitle = "v1.1 PRESETS",
-    Size = Vector2.new(580, 460),
-    Resize = true,
-    Theme = "AmethystDark",
-    MinimizeKey = 0,
 })
+
+Library.Raw:SetBackgroundImage(
+    "https://raw.githubusercontent.com/voidlinksbuisness-sudo/scripts/main/assets/fftm-ui-background.png",
+    0.38,
+    1,
+    1
+)
 
 local Main = Window:AddTab({
     Title = "Main",
@@ -30,7 +200,7 @@ local Camera = workspace.CurrentCamera
 --==================================================
 -- FFTM REMOTE SESSION CONTROL
 --==================================================
-FFTM_MAIN_VERSION = "2026-08-28-TOOLTIPS-1"
+FFTM_MAIN_VERSION = "2026-08-28-INS-UI-1"
 FFTM_API_URL = "https://fftm-parry-api.voidlinksbuisness.workers.dev"
 FFTM_RUNNING = true
 FFTM_LAST_HEARTBEAT_AT = -1000000
@@ -3441,7 +3611,7 @@ function SetupPresetConfigUI()
 
     local Configs = {}
     local SelectedConfig = "Config 1"
-    local CurrentTheme = "AmethystDark"
+    local CurrentTheme = "Waifu"
 
     local ConfigNames = {
         "Config 1",
@@ -3914,7 +4084,7 @@ function SetupPresetConfigUI()
         Title = "Theme",
         Description = "Changes the menu's colors and visual style immediately.",
         Options = Library.Themes,
-        Default = "AmethystDark",
+        Default = "Waifu",
 
         Callback = function(value)
             CurrentTheme = value
@@ -4061,7 +4231,7 @@ SetupTargetFolderUI()
 
 Library:Notify({
     Title = "Loaded",
-    Content = "Wabi visuals + Gakuran dependencies loaded.",
+    Content = "INS visuals + Gakuran dependencies loaded.",
     Duration = 4
 })
 
