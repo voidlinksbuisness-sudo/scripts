@@ -318,17 +318,33 @@ local function removePlayer(player)
 	end
 end
 
+local function refreshCharacter(player)
+	local data = characterCache[player]
+	if not data then
+		return false
+	end
+
+	if player.Parent ~= Players then
+		data.Character = nil
+		data.Root = nil
+		return false
+	end
+
+	local character = player.Character
+
+	if data.Character ~= character then
+		data.Character = character
+		data.Root = character and character:FindFirstChild("HumanoidRootPart") or nil
+	elseif character and (not data.Root or data.Root.Parent ~= character) then
+		data.Root = character:FindFirstChild("HumanoidRootPart")
+	end
+
+	return true
+end
+
 local function refreshCharacters()
 	for _, player in ipairs(playersCache) do
-		local data = characterCache[player]
-		local character = data and player.Character
-
-		if data and data.Character ~= character then
-			data.Character = character
-			data.Root = character and character:FindFirstChild("HumanoidRootPart") or nil
-		elseif data and character and (not data.Root or data.Root.Parent ~= character) then
-			data.Root = character:FindFirstChild("HumanoidRootPart")
-		end
+		pcall(refreshCharacter, player)
 	end
 end
 
@@ -403,6 +419,71 @@ local function hideAllVisuals()
 end
 
 --// ESP + TRACERS
+local function updatePlayerVisual(
+	player,
+	viewport,
+	origin,
+	camPos,
+	maxDistanceSquared,
+	tracerTransparency
+)
+	local drawings = drawingsByPlayer[player]
+
+	if not refreshCharacter(player) then
+		if drawings and drawings.Box then drawings.Box.Visible = false end
+		if drawings and drawings.Tracer then drawings.Tracer.Visible = false end
+		return
+	end
+
+	local data = characterCache[player]
+	local root = data and data.Root
+	local visible = false
+	local screenPos
+	local distanceSquared
+
+	if root then
+		local position = root.Position
+		local dx = position.X - camPos.X
+		local dy = position.Y - camPos.Y
+		local dz = position.Z - camPos.Z
+		distanceSquared = dx * dx + dy * dy + dz * dz
+
+		if distanceSquared <= maxDistanceSquared then
+			screenPos, visible = WorldToScreen(position)
+			visible = visible
+				and screenPos.X >= 0
+				and screenPos.X <= viewport.X
+				and screenPos.Y >= 0
+				and screenPos.Y <= viewport.Y
+		end
+	end
+
+	if state.ESP and visible then
+		drawings = drawings or getPlayerDrawings(player)
+		local box = getEspBox(drawings)
+		local distance = math.sqrt(distanceSquared)
+		local scale = math.clamp(1500 / math.max(distance, 0.001), 8, 400)
+		local size = Vector2.new(scale, scale * 1.5)
+
+		box.Size = size
+		box.Position = Vector2.new(screenPos.X - size.X * 0.5, screenPos.Y - size.Y * 0.5)
+		box.Visible = true
+	elseif drawings and drawings.Box then
+		drawings.Box.Visible = false
+	end
+
+	if state.Tracers and visible then
+		drawings = drawings or getPlayerDrawings(player)
+		local line = getTracer(drawings)
+		line.From = origin
+		line.To = screenPos
+		line.Transparency = tracerTransparency
+		line.Visible = tracerTransparency > 0
+	elseif drawings and drawings.Tracer then
+		drawings.Tracer.Visible = false
+	end
+end
+
 local function updateEspTracers()
 	Camera = workspace.CurrentCamera or Camera
 	if not Camera then
@@ -417,52 +498,24 @@ local function updateEspTracers()
 	local tracerTransparency = 1 - (state.TracerTransparency / 100)
 
 	for _, player in ipairs(playersCache) do
-		local drawings = drawingsByPlayer[player]
-		local root = characterCache[player].Root
-		local visible = false
-		local screenPos
-		local distanceSquared
+		local ok, err = pcall(
+			updatePlayerVisual,
+			player,
+			viewport,
+			origin,
+			camPos,
+			maxDistanceSquared,
+			tracerTransparency
+		)
 
-		if root then
-			local position = root.Position
-			local dx = position.X - camPos.X
-			local dy = position.Y - camPos.Y
-			local dz = position.Z - camPos.Z
-			distanceSquared = dx * dx + dy * dy + dz * dz
-
-			if distanceSquared <= maxDistanceSquared then
-				screenPos, visible = WorldToScreen(position)
-				visible = visible
-					and screenPos.X >= 0
-					and screenPos.X <= viewport.X
-					and screenPos.Y >= 0
-					and screenPos.Y <= viewport.Y
-			end
-		end
-
-		if state.ESP and visible then
-			drawings = drawings or getPlayerDrawings(player)
-			local box = getEspBox(drawings)
-			local distance = math.sqrt(distanceSquared)
-			local scale = math.clamp(1500 / math.max(distance, 0.001), 8, 400)
-			local size = Vector2.new(scale, scale * 1.5)
-
-			box.Size = size
-			box.Position = Vector2.new(screenPos.X - size.X * 0.5, screenPos.Y - size.Y * 0.5)
-			box.Visible = true
-		elseif drawings and drawings.Box then
-			drawings.Box.Visible = false
-		end
-
-		if state.Tracers and visible then
-			drawings = drawings or getPlayerDrawings(player)
-			local line = getTracer(drawings)
-			line.From = origin
-			line.To = screenPos
-			line.Transparency = tracerTransparency
-			line.Visible = tracerTransparency > 0
-		elseif drawings and drawings.Tracer then
-			drawings.Tracer.Visible = false
+		if not ok then
+			characterCache[player] = nil
+			local drawings = drawingsByPlayer[player]
+			pcall(function()
+				if drawings and drawings.Box then drawings.Box.Visible = false end
+				if drawings and drawings.Tracer then drawings.Tracer.Visible = false end
+			end)
+			warn("[ESP] Skipped one stale player: " .. tostring(err))
 		end
 	end
 end
