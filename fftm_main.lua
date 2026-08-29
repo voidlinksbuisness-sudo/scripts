@@ -1,10 +1,37 @@
--- FFTM_MAIN_BUILD = "2026-08-28-PARRY-LAYOUT-1"
+-- FFTM_MAIN_BUILD = "2026-08-29-ORGANIZED-UI-1"
 --// INS UI
-local Library = {
-    Raw = loadstring(game:HttpGet(
-        "https://raw.githubusercontent.com/neaxusxgod-png/INS-ui/506859d3787450b6296254b1bb05a9c6d77ebeb2/uilib.min.lua"
-    ))() or INSUI
-}
+local Library = {}
+
+Library.Source = game:HttpGet(
+    "https://raw.githubusercontent.com/neaxusxgod-png/INS-ui/506859d3787450b6296254b1bb05a9c6d77ebeb2/uilib.min.lua"
+)
+
+Library.Source, Library.ScrollPatchCount = Library.Source:gsub(
+    "function InsUi:IsOpen%(%)",
+    [[function InsUi:ScrollActive(amount)
+  if not State.Open or not IsMouseIn(State.X, State.Y, State.W, State.H) then return self end
+
+  local Tab = ActiveView()
+  if not Tab then return self end
+
+  Tab.WantScroll = math.min(math.max(Tab.WantScroll + (tonumber(amount) or 0), 0), Tab.MaxScroll)
+  Tab.Fling = 0
+
+  return self
+end
+
+
+function InsUi:IsOpen()]],
+    1
+)
+
+if Library.ScrollPatchCount ~= 1 then
+    error("[FFTM] INS mouse-wheel patch anchor was not found.")
+end
+
+Library.Raw = loadstring(Library.Source)() or INSUI
+Library.Source = nil
+Library.ScrollPatchCount = nil
 
 Library.Themes = Library.Raw:ThemePresets()
 
@@ -190,6 +217,8 @@ Library.Raw:SetBackgroundImage(
     1
 )
 
+Library.Raw:Category("VISUALS")
+
 local Main = Window:AddTab({
     Title = "Main",
     Icon = "house"
@@ -201,13 +230,24 @@ local RunService = game:GetService("RunService")
 local UIS = game:GetService("UserInputService")
 local SelectedFolder = nil
 
+-- INS's pinned build supports dragging and keyboard scrolling but does not
+-- consume Roblox mouse-wheel input. Forward wheel steps to the active tab.
+pcall(function()
+    UIS.InputChanged:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseWheel then
+            local position = input.Position
+            Library.Raw:ScrollActive(-((position and position.Z) or 0) * 72)
+        end
+    end)
+end)
+
 local LocalPlayer = Players.LocalPlayer
 local Camera = workspace.CurrentCamera
 
 --==================================================
 -- FFTM REMOTE SESSION CONTROL
 --==================================================
-FFTM_MAIN_VERSION = "2026-08-28-PARRY-LAYOUT-1"
+FFTM_MAIN_VERSION = "2026-08-29-ORGANIZED-UI-1"
 FFTM_API_URL = "https://fftm-parry-api.voidlinksbuisness.workers.dev"
 FFTM_RUNNING = true
 FFTM_LAST_HEARTBEAT_AT = -1000000
@@ -889,10 +929,19 @@ local function updateHealth()
 end
 
 --==================================================
--- WABI SABI CONTROLS
+-- INS VISUAL CONTROLS
 --==================================================
 
 local UIToggles = {}
+
+Main.Section.Name = "Player ESP"
+Main.Section.Side = "Left"
+Main.Section.Desc = "Boxes, tracers, visibility, and render-distance controls."
+Main.Health = Main:AddSection(
+    "Health Display",
+    "Right",
+    "Player and local health overlays with independent range control."
+)
 
 UIToggles.ESP = Main:AddToggle({
     Id = "esp",
@@ -953,7 +1002,7 @@ local ESPDistanceSlider = Main:AddSlider({
 
 --// PLAYER HEALTH
 
-UIToggles.PlayerHealth = Main:AddToggle({
+UIToggles.PlayerHealth = Main.Health:AddToggle({
     Id = "player_health",
     Title = "Player Health",
     Description = "Shows each nearby player's current health above their character.",
@@ -965,7 +1014,7 @@ UIToggles.PlayerHealth = Main:AddToggle({
     end
 })
 
-local HealthESPDistanceSlider = Main:AddSlider({
+local HealthESPDistanceSlider = Main.Health:AddSlider({
     Id = "player_health_distance",
     Title = "Health ESP Distance",
     Description = "Maximum range for player health labels in studs.",
@@ -985,7 +1034,7 @@ local HealthESPDistanceSlider = Main:AddSlider({
 })
 
 
-UIToggles.SelfHealth = Main:AddToggle({
+UIToggles.SelfHealth = Main.Health:AddToggle({
     Id = "self_health",
     Title = "Self Health",
     Description = "Shows your current health at the center of the screen.",
@@ -1117,11 +1166,61 @@ local function SafeAddButton(tab, config)
     return SafeControl(tab, "AddButton", config)
 end
 
+Library.Raw:Category("COMBAT")
+
 local AutoParryTab   = SafeAddTab("Auto Parry", "swords")
 local TargetingTab   = SafeAddTab("Targeting", "crosshair")
 local ParryConfigTab = SafeAddTab("Parry Config", "settings")
-local ConfigTab      = SafeAddTab("Config", "settings")
-local KeybindsTab    = SafeAddTab("Keybinds", "keyboard")
+
+Library.Raw:Category("SETTINGS")
+
+local ConfigTab   = SafeAddTab("Config", "settings")
+local KeybindsTab = SafeAddTab("Keybinds", "keyboard")
+
+AutoParryTab.Section.Name = "Combat Automation"
+AutoParryTab.Section.Side = "Left"
+AutoParryTab.Section.Desc = "Automatic defensive and counter responses."
+AutoParryTab.Extras = AutoParryTab:AddSection(
+    "Extras & Diagnostics",
+    "Right",
+    "Optional automation and parry debugging controls."
+)
+
+TargetingTab.Section.Name = "Target Selection"
+TargetingTab.Section.Side = "Left"
+TargetingTab.Section.Desc = "Selection behavior, range, folder, and manual cycling."
+TargetingTab.Filters = TargetingTab:AddSection(
+    "Facing Filters",
+    "Right",
+    "Direction checks applied before handling normal attacks."
+)
+TargetingTab.Whitelist = TargetingTab:AddSection(
+    "Target Whitelist",
+    "Right",
+    "Exclude or restore characters from automatic selection."
+)
+
+ConfigTab.Section.Name = "Profiles"
+ConfigTab.Section.Side = "Left"
+ConfigTab.Section.Desc = "Save and restore complete FFTM setting profiles."
+ConfigTab.Appearance = ConfigTab:AddSection(
+    "Appearance",
+    "Right",
+    "Change the INS color preset used by this interface."
+)
+ConfigTab.Utilities = ConfigTab:AddSection(
+    "Visual Utilities",
+    "Right",
+    "Maintenance actions for active Drawing overlays."
+)
+
+KeybindsTab.Section.Name = "Interface"
+KeybindsTab.Section.Side = "Left"
+KeybindsTab.Section.Desc = "Menu and general action shortcuts."
+KeybindsTab.Combat = KeybindsTab:AddSection("Combat", "Right", "Combat automation shortcuts.")
+KeybindsTab.Targeting = KeybindsTab:AddSection("Targeting", "Left", "Target selection shortcuts.")
+KeybindsTab.Parry = KeybindsTab:AddSection("Parry Config", "Right", "Timing modifier shortcuts.")
+KeybindsTab.Visuals = KeybindsTab:AddSection("Visuals", "Left", "ESP and health-overlay shortcuts.")
 
 -- Split Parry Config into INS cards like the reference layout. These are
 -- presentation-only proxies; every control keeps its original callback and
@@ -1140,7 +1239,16 @@ ParryConfigTab.Modifiers = ParryConfigTab:AddSection(
 if type(FFTM_ADMIN_KEY) == "string"
     and FFTM_ADMIN_KEY ~= "" then
 
+    Library.Raw:Category("ADMIN")
     FFTMAdminTab = SafeAddTab("Admin", "settings")
+    FFTMAdminTab.Section.Name = "Active Sessions"
+    FFTMAdminTab.Section.Side = "Left"
+    FFTMAdminTab.Section.Desc = "Inspect and refresh active FFTM sessions in this server."
+    FFTMAdminTab.Commands = FFTMAdminTab:AddSection(
+        "Session Commands",
+        "Right",
+        "Send administrative commands to the selected session."
+    )
     FFTM_ADMIN_OPTION_TO_SESSION = {}
     FFTMAdminDropdown = nil
 
@@ -1271,7 +1379,7 @@ if type(FFTM_ADMIN_KEY) == "string"
         end
     })
 
-    SafeAddButton(FFTMAdminTab, {
+    SafeAddButton(FFTMAdminTab.Commands, {
         Title = "Shutdown Selected",
         Description = "Queues the selected FFTM session to close on its next heartbeat.",
 
@@ -1298,7 +1406,7 @@ if type(FFTM_ADMIN_KEY) == "string"
         end
     })
 
-    SafeAddButton(FFTMAdminTab, {
+    SafeAddButton(FFTMAdminTab.Commands, {
         Title = "Enable Selected",
         Description = "Re-enables the selected FFTM session after a shutdown command.",
 
@@ -1361,7 +1469,7 @@ UIToggles.AutoAliCounter = SafeAddToggle(AutoParryTab, {
     end
 })
 
-UIToggles.AutoPlay = SafeAddToggle(AutoParryTab, {
+UIToggles.AutoPlay = SafeAddToggle(AutoParryTab.Extras, {
     Id = "auto_play",
     Title = "Auto Play",
     Description = "Automatically presses notes during the supported rhythm minigame.",
@@ -1371,7 +1479,7 @@ UIToggles.AutoPlay = SafeAddToggle(AutoParryTab, {
     end
 })
 
-UIToggles.ParryDebug = SafeAddToggle(AutoParryTab, {
+UIToggles.ParryDebug = SafeAddToggle(AutoParryTab.Extras, {
     Id = "parry_debug",
     Title = "Debug Parry",
     Description = "Prints detailed parry timing and latency diagnostics after a parry.",
@@ -1411,7 +1519,7 @@ UIToggles.IncludeLocalCharacter = SafeAddToggle(TargetingTab, {
     end
 })
 
-UIToggles.TargetFacingYou = SafeAddToggle(TargetingTab, {
+UIToggles.TargetFacingYou = SafeAddToggle(TargetingTab.Filters, {
     Id = "target_facing_you",
     Title = "Target Facing You",
     Description = "Only handles normal attacks when the target is facing toward you.",
@@ -1421,7 +1529,7 @@ UIToggles.TargetFacingYou = SafeAddToggle(TargetingTab, {
     end
 })
 
-UIToggles.YouFacingTarget = SafeAddToggle(TargetingTab, {
+UIToggles.YouFacingTarget = SafeAddToggle(TargetingTab.Filters, {
     Id = "you_facing_target",
     Title = "You Facing Target",
     Description = "Only handles normal attacks when you are facing toward the target.",
@@ -3559,7 +3667,31 @@ local function SetKeybind(spec, value)
 end
 
 local function AddKeybindControl(spec)
-    local control = SafeControl(KeybindsTab, "AddKeybind", {
+    local targetTab = KeybindsTab
+
+    if spec.Id == "cycle_target"
+        or spec.Id == "auto_target_nearest"
+        or spec.Id == "multiple_targets"
+        or spec.Id == "include_local_character"
+        or spec.Id == "target_facing_you"
+        or spec.Id == "you_facing_target" then
+
+        targetTab = KeybindsTab.Targeting
+    elseif spec.Id == "height_multiplier"
+        or spec.Id == "ping_compensation" then
+
+        targetTab = KeybindsTab.Parry
+    elseif spec.Id == "esp"
+        or spec.Id == "tracers"
+        or spec.Id == "player_health"
+        or spec.Id == "self_health" then
+
+        targetTab = KeybindsTab.Visuals
+    elseif spec.Id ~= "menu_toggle" then
+        targetTab = KeybindsTab.Combat
+    end
+
+    local control = SafeControl(targetTab, "AddKeybind", {
         Id = "keybind_" .. spec.Id,
         Title = spec.Title,
         Description = spec.Id == "menu_toggle"
@@ -4107,7 +4239,7 @@ function SetupPresetConfigUI()
 
 
 
-    SafeAddDropdown(ConfigTab, {
+    SafeAddDropdown(ConfigTab.Appearance, {
         Id = "config_theme",
         Title = "Theme",
         Description = "Changes the menu's colors and visual style immediately.",
@@ -4120,7 +4252,7 @@ function SetupPresetConfigUI()
         end
     })
 
-    SafeAddButton(ConfigTab, {
+    SafeAddButton(ConfigTab.Utilities, {
         Title = "Clear Drawings",
         Description = "Immediately hides all base ESP, tracer, and health Drawing objects.",
 
@@ -4158,7 +4290,7 @@ function SetupTargetFolderUI()
         end
     })
 
-    SafeAddButton(TargetingTab, {
+    SafeAddButton(TargetingTab.Whitelist, {
         Title = "Whitelist Selected Target(s)",
         Description = "Excludes the currently selected target(s) from future selection.",
 
@@ -4187,7 +4319,7 @@ function SetupTargetFolderUI()
         end
     })
 
-    SafeAddButton(TargetingTab, {
+    SafeAddButton(TargetingTab.Whitelist, {
         Title = "Remove Last Selected From Whitelist",
         Description = "Allows the last selected target(s) to be selected again.",
 
@@ -4214,7 +4346,7 @@ function SetupTargetFolderUI()
         end
     })
 
-    SafeAddButton(TargetingTab, {
+    SafeAddButton(TargetingTab.Whitelist, {
         Title = "Clear Whitelist",
         Description = "Removes every target from the exclusion list.",
 
