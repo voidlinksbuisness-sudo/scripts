@@ -1,4 +1,4 @@
--- FFTM_MAIN_BUILD = "2026-08-29-CURSOR-MULTITARGET-1"
+-- FFTM_MAIN_BUILD = "2026-08-29-CURSOR-MULTITARGET-2"
 --// INS UI
 local Library = {
     Raw = loadstring(game:HttpGet(
@@ -208,7 +208,7 @@ local Camera = workspace.CurrentCamera
 --==================================================
 -- FFTM REMOTE SESSION CONTROL
 --==================================================
-FFTM_MAIN_VERSION = "2026-08-29-CURSOR-MULTITARGET-1"
+FFTM_MAIN_VERSION = "2026-08-29-CURSOR-MULTITARGET-2"
 FFTM_API_URL = "https://fftm-parry-api.voidlinksbuisness.workers.dev"
 FFTM_RUNNING = true
 FFTM_LAST_HEARTBEAT_AT = -1000000
@@ -1620,7 +1620,7 @@ UIToggles.AutoTargetNearest = SafeAddToggle(TargetingTab, {
 UIToggles.MultipleTargets = SafeAddToggle(TargetingTab, {
     Id = "multiple_targets",
     Title = "Multiple Targets",
-    Description = "Lets automatic targeting select three characters and manual targeting add or remove up to three cursor-selected characters.",
+    Description = "Selects up to the three nearest valid characters automatically or around your cursor when targeting manually.",
     Default = true,
     Callback = function(value)
         MultiTarget.Set(value)
@@ -3534,12 +3534,30 @@ function CycleEvent(manualCycle)
     local mouseLocation = nil
 
     if manualCycle then
-        local mouseOk, currentMouseLocation = pcall(function()
-            return UIS:GetMouseLocation()
+        -- Matcha support differs between Roblox mouse APIs. Prefer the
+        -- viewport-aligned LocalPlayer mouse, then fall back to UIS.
+        local playerMouseOk, playerMouse = pcall(function()
+            return LocalPlayer:GetMouse()
         end)
 
-        if mouseOk then
-            mouseLocation = currentMouseLocation
+        if playerMouseOk and playerMouse then
+            local positionOk, playerMouseLocation = pcall(function()
+                return Vector2.new(playerMouse.X, playerMouse.Y)
+            end)
+
+            if positionOk then
+                mouseLocation = playerMouseLocation
+            end
+        end
+
+        if not mouseLocation then
+            local inputMouseOk, inputMouseLocation = pcall(function()
+                return UIS:GetMouseLocation()
+            end)
+
+            if inputMouseOk then
+                mouseLocation = inputMouseLocation
+            end
         end
     end
 
@@ -3627,46 +3645,21 @@ function CycleEvent(manualCycle)
 
         if MultiTarget.Get() then
             local selectedCharacters = {}
-            local selectedIndex = nil
 
-            for _, character in ipairs(TargetCharacters) do
-                local stillValid = false
-
-                for _, candidate in ipairs(validCharacters) do
-                    if candidate.Character == character then
-                        stillValid = true
-                        break
-                    end
-                end
-
-                if stillValid then
-                    selectedCharacters[#selectedCharacters + 1] = character
-
-                    if character == selectedCharacter then
-                        selectedIndex = #selectedCharacters
-                    end
-                end
-            end
-
-            if selectedIndex then
-                table.remove(selectedCharacters, selectedIndex)
-            else
-                selectedCharacters[#selectedCharacters + 1] = selectedCharacter
-
-                if #selectedCharacters > 3 then
-                    table.remove(selectedCharacters, 1)
-                end
+            -- A single manual activation selects the three candidates nearest
+            -- the cursor, matching the automatic multi-target count.
+            for index = 1, math.min(3, #validCharacters) do
+                selectedCharacters[index] =
+                    validCharacters[index].Character
             end
 
             UpdateTargetCharacters(selectedCharacters)
 
             Notify(
                 "Target",
-                (selectedIndex and "Removed " or "Selected ")
-                    .. GetCharacterDisplayName(selectedCharacter)
-                    .. " ["
+                "Selected "
                     .. tostring(#selectedCharacters)
-                    .. "/3]",
+                    .. " cursor-nearest target(s)",
                 2
             )
         else
@@ -4041,7 +4034,7 @@ local function AddKeybindControl(spec)
         Description = spec.Id == "menu_toggle"
             and "Key used to minimize or restore the menu. Press Delete to clear it."
             or spec.Id == "cycle_target"
-            and "Selects the in-range character nearest your cursor. Multiple Targets adds or removes that character. Press Delete to clear it."
+            and "Selects the in-range character nearest your cursor, or up to three when Multiple Targets is enabled. Press Delete to clear it."
             or "Pressing this key toggles the matching feature. Press Delete to clear it.",
         Default = spec.KeyName,
         Mode = "Toggle",
@@ -4632,7 +4625,7 @@ SetupPresetConfigUI()
 function SetupTargetFolderUI()
     SafeAddButton(TargetingTab, {
         Title = "Select Cursor Target Now",
-        Description = "Selects the in-range character nearest your cursor; Multiple Targets adds or removes that character.",
+        Description = "Selects the in-range character nearest your cursor, or up to three when Multiple Targets is enabled.",
 
         Callback = function()
             print("[Target] UI cycle button pressed")
