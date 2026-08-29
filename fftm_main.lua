@@ -1,67 +1,12 @@
--- FFTM_MAIN_BUILD = "2026-08-29-SCROLL-READABILITY-FIX-1"
+-- FFTM_MAIN_BUILD = "2026-08-29-AUTOPARRY-STATUS-1"
 --// INS UI
-local Library = {}
-
-Library.Source = game:HttpGet(
-    "https://raw.githubusercontent.com/neaxusxgod-png/INS-ui/506859d3787450b6296254b1bb05a9c6d77ebeb2/uilib.min.lua"
-)
-
-Library.Source, Library.ScrollPatchCount = Library.Source:gsub(
-    "function InsUi:IsOpen%(%)",
-    [[function InsUi:ScrollActive(amount)
-  if not State.Open or not IsMouseIn(State.X, State.Y, State.W, State.H) then return self end
-
-  local Tab = ActiveView()
-  if not Tab then return self end
-
-  Tab.WantScroll = math.min(math.max(Tab.WantScroll + (tonumber(amount) or 0), 0), Tab.MaxScroll)
-  Tab.Fling = 0
-
-  return self
-end
-
-
-function InsUi:IsOpen()]],
-    1
-)
-
-if Library.ScrollPatchCount ~= 1 then
-    error("[FFTM] INS mouse-wheel patch anchor was not found.")
-end
-
-Library.Raw = loadstring(Library.Source)() or INSUI
-Library.Source = nil
-Library.ScrollPatchCount = nil
+local Library = {
+    Raw = loadstring(game:HttpGet(
+        "https://raw.githubusercontent.com/neaxusxgod-png/INS-ui/506859d3787450b6296254b1bb05a9c6d77ebeb2/uilib.min.lua"
+    ))() or INSUI
+}
 
 Library.Themes = Library.Raw:ThemePresets()
-
-function Library:HandleWheel(amount)
-    amount = tonumber(amount) or 0
-    if amount == 0 then
-        return
-    end
-
-    local now = os.clock()
-    if now - (self.LastWheelAt or -1000000) < 0.01
-        and amount == self.LastWheelAmount then
-        return
-    end
-
-    self.LastWheelAt = now
-    self.LastWheelAmount = amount
-    self.Raw:ScrollActive(amount)
-end
-
-function Library:ReadWheelInput(input)
-    local ok, isWheel, delta = pcall(function()
-        return input.UserInputType == Enum.UserInputType.MouseWheel,
-            input.Position.Z
-    end)
-
-    if ok and isWheel then
-        self:HandleWheel(-(tonumber(delta) or 0) * 72)
-    end
-end
 
 function Library:AdaptRow(row)
     row.SetValue = row.Set
@@ -260,49 +205,10 @@ local SelectedFolder = nil
 local LocalPlayer = Players.LocalPlayer
 local Camera = workspace.CurrentCamera
 
--- INS's pinned build supports dragging and keyboard scrolling but does not
--- consume mouse-wheel input. Matcha exposes different signals across builds,
--- so support both UIS and PlayerMouse and deduplicate double-fired notches.
-pcall(function()
-    local signal = UIS.InputChanged
-    if signal and type(signal.Connect) == "function" then
-        signal:Connect(function(input)
-            Library:ReadWheelInput(input)
-        end)
-    end
-end)
-
-pcall(function()
-    local signal = UIS.InputBegan
-    if signal and type(signal.Connect) == "function" then
-        signal:Connect(function(input)
-            Library:ReadWheelInput(input)
-        end)
-    end
-end)
-
-pcall(function()
-    local mouse = LocalPlayer:GetMouse()
-    local forward = mouse.WheelForward
-    local backward = mouse.WheelBackward
-
-    if forward and type(forward.Connect) == "function" then
-        forward:Connect(function()
-            Library:HandleWheel(-72)
-        end)
-    end
-
-    if backward and type(backward.Connect) == "function" then
-        backward:Connect(function()
-            Library:HandleWheel(72)
-        end)
-    end
-end)
-
 --==================================================
 -- FFTM REMOTE SESSION CONTROL
 --==================================================
-FFTM_MAIN_VERSION = "2026-08-29-SCROLL-READABILITY-FIX-1"
+FFTM_MAIN_VERSION = "2026-08-29-AUTOPARRY-STATUS-1"
 FFTM_API_URL = "https://fftm-parry-api.voidlinksbuisness.workers.dev"
 FFTM_RUNNING = true
 FFTM_LAST_HEARTBEAT_AT = -1000000
@@ -1136,6 +1042,48 @@ local function NewValueControl(defaultValue)
     return control
 end
 
+VisualRuntime.AutoParryStatusBackground = Drawing.new("Square")
+VisualRuntime.AutoParryStatusBackground.Size = Vector2.new(180, 30)
+VisualRuntime.AutoParryStatusBackground.Filled = true
+VisualRuntime.AutoParryStatusBackground.Color = Color3.fromRGB(12, 12, 12)
+VisualRuntime.AutoParryStatusBackground.Transparency = 0.78
+VisualRuntime.AutoParryStatusBackground.ZIndex = 49
+VisualRuntime.AutoParryStatusBackground.Visible = true
+
+VisualRuntime.AutoParryStatus = Drawing.new("Text")
+VisualRuntime.AutoParryStatus.Size = 18
+VisualRuntime.AutoParryStatus.Center = true
+VisualRuntime.AutoParryStatus.Outline = true
+VisualRuntime.AutoParryStatus.Font = Drawing.Fonts.Fortnite
+VisualRuntime.AutoParryStatus.Transparency = 1
+VisualRuntime.AutoParryStatus.ZIndex = 50
+VisualRuntime.AutoParryStatus.Visible = true
+
+function VisualRuntime.PositionAutoParryStatus()
+    local viewport = Camera.ViewportSize
+    if VisualRuntime.AutoParryStatusViewport == viewport then
+        return
+    end
+
+    VisualRuntime.AutoParryStatusViewport = viewport
+    VisualRuntime.AutoParryStatusBackground.Position =
+        Vector2.new(viewport.X - 198, viewport.Y - 48)
+    VisualRuntime.AutoParryStatus.Position =
+        Vector2.new(viewport.X - 108, viewport.Y - 42)
+end
+
+function VisualRuntime.UpdateAutoParryStatus(enabled)
+    enabled = enabled == true
+    VisualRuntime.AutoParryStatus.Text =
+        enabled and "AUTO PARRY: ON" or "AUTO PARRY: OFF"
+    VisualRuntime.AutoParryStatus.Color = enabled
+        and Color3.fromRGB(90, 255, 130)
+        or Color3.fromRGB(255, 90, 90)
+    VisualRuntime.AutoParryStatus.Visible = true
+    VisualRuntime.AutoParryStatusBackground.Visible = true
+    VisualRuntime.PositionAutoParryStatus()
+end
+
 local IncludeLocalCharacter = false
 
 -- Legacy logger refresh hook. The INS UI version updated text labels here;
@@ -1155,6 +1103,13 @@ local YouFacingTarget      = NewValueControl(true)
 local ParryDebugToggle     = NewValueControl(false)
 local PingCompensateToggle = NewValueControl(true)
 local AutoPlayToggle       = NewValueControl(true)
+
+VisualRuntime.AutoParrySet = AutoParryToggle.Set
+AutoParryToggle.Set = function(value)
+    VisualRuntime.AutoParrySet(value)
+    VisualRuntime.UpdateAutoParryStatus(value)
+end
+VisualRuntime.UpdateAutoParryStatus(AutoParryToggle.Get())
 
 -- Dependencies are injected as locals by loader.lua into this SAME Lua chunk.
 -- This avoids Matcha losing module return values between separate loadstring calls.
@@ -2480,6 +2435,13 @@ function FFTMShutdown()
         hidePoolFrom(espBoxes, 1)
         hidePoolFrom(tracerLines, 1)
         hidePoolFrom(healthTexts, 1)
+    end)
+
+    pcall(function()
+        VisualRuntime.AutoParryStatus.Visible = false
+        VisualRuntime.AutoParryStatusBackground.Visible = false
+        VisualRuntime.AutoParryStatus:Remove()
+        VisualRuntime.AutoParryStatusBackground:Remove()
     end)
 
     pcall(function()
@@ -4580,6 +4542,8 @@ RunService.RenderStepped:Connect(function(deltaTime)
     if not FFTM_RUNNING then
         return
     end
+
+    VisualRuntime.PositionAutoParryStatus()
 
     -- Target selection markers retain their existing render-rate behavior.
     -- They are separate from the base ESP/health visual pipeline.
