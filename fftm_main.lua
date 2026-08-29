@@ -1,4 +1,4 @@
--- FFTM_MAIN_BUILD = "2026-08-29-TRANSPARENT-STATUS-1"
+-- FFTM_MAIN_BUILD = "2026-08-29-PARRY-STATUS-TOGGLE-1"
 --// INS UI
 local Library = {
     Raw = loadstring(game:HttpGet(
@@ -208,7 +208,7 @@ local Camera = workspace.CurrentCamera
 --==================================================
 -- FFTM REMOTE SESSION CONTROL
 --==================================================
-FFTM_MAIN_VERSION = "2026-08-29-TRANSPARENT-STATUS-1"
+FFTM_MAIN_VERSION = "2026-08-29-PARRY-STATUS-TOGGLE-1"
 FFTM_API_URL = "https://fftm-parry-api.voidlinksbuisness.workers.dev"
 FFTM_RUNNING = true
 FFTM_LAST_HEARTBEAT_AT = -1000000
@@ -1050,6 +1050,7 @@ VisualRuntime.AutoParryStatus.Font = Drawing.Fonts.Fortnite
 VisualRuntime.AutoParryStatus.Transparency = 1
 VisualRuntime.AutoParryStatus.ZIndex = 50
 VisualRuntime.AutoParryStatus.Visible = true
+VisualRuntime.AutoParryStatusEnabled = true
 
 function VisualRuntime.PositionAutoParryStatus()
     local viewport = Camera.ViewportSize
@@ -1069,8 +1070,15 @@ function VisualRuntime.UpdateAutoParryStatus(enabled)
     VisualRuntime.AutoParryStatus.Color = enabled
         and Color3.fromRGB(90, 255, 130)
         or Color3.fromRGB(255, 90, 90)
-    VisualRuntime.AutoParryStatus.Visible = true
+    VisualRuntime.AutoParryStatus.Visible =
+        VisualRuntime.AutoParryStatusEnabled == true
     VisualRuntime.PositionAutoParryStatus()
+end
+
+function VisualRuntime.SetAutoParryStatusVisible(visible)
+    VisualRuntime.AutoParryStatusEnabled = visible == true
+    VisualRuntime.AutoParryStatus.Visible =
+        VisualRuntime.AutoParryStatusEnabled
 end
 
 local IncludeLocalCharacter = false
@@ -1485,6 +1493,16 @@ UIToggles.ParryDebug = SafeAddToggle(AutoParryTab.Extras, {
     Default = false,
     Callback = function(value)
         ParryDebugToggle.Set(value)
+    end
+})
+
+UIToggles.ParryStatus = SafeAddToggle(AutoParryTab.Extras, {
+    Id = "parry_status",
+    Title = "Parry Status",
+    Description = "Shows the transparent Auto Parry ON/OFF indicator in the bottom-right corner.",
+    Default = true,
+    Callback = function(value)
+        VisualRuntime.SetAutoParryStatusVisible(value)
     end
 })
 
@@ -3627,6 +3645,9 @@ RegisterToggleKeybind("auto_play", "Auto Play", "AutoPlay",
     AutoPlayToggle.Get, AutoPlayToggle.Set)
 RegisterToggleKeybind("parry_debug", "Debug Parry", "ParryDebug",
     ParryDebugToggle.Get, ParryDebugToggle.Set)
+RegisterToggleKeybind("parry_status", "Parry Status", "ParryStatus",
+    function() return VisualRuntime.AutoParryStatusEnabled end,
+    VisualRuntime.SetAutoParryStatusVisible)
 
 RegisterToggleKeybind("auto_target_nearest", "Auto Target Nearest", "AutoTargetNearest",
     AutoTargetNearest.Get, AutoTargetNearest.Set)
@@ -3989,6 +4010,7 @@ function SetupPresetConfigUI()
                 AutoAliCounter = AutoAliCounterToggle.Get(),
                 AutoPlay = AutoPlayToggle.Get(),
                 ParryDebug = ParryDebugToggle.Get(),
+                ParryStatus = VisualRuntime.AutoParryStatusEnabled,
                 PingCompensation = PingCompensateToggle.Get(),
                 HeightMultiplier = HeightToggle.Get(),
 
@@ -4109,6 +4131,11 @@ function SetupPresetConfigUI()
             ApplyToggleControl("AutoAliCounter", combat.AutoAliCounter, AutoAliCounterToggle.Set)
             ApplyToggleControl("AutoPlay", combat.AutoPlay, AutoPlayToggle.Set)
             ApplyToggleControl("ParryDebug", combat.ParryDebug, ParryDebugToggle.Set)
+            ApplyToggleControl(
+                "ParryStatus",
+                combat.ParryStatus,
+                VisualRuntime.SetAutoParryStatusVisible
+            )
             ApplyToggleControl(
                 "PingCompensation",
                 combat.PingCompensation,
