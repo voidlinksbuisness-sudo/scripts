@@ -1,4 +1,4 @@
--- FFTM_MAIN_BUILD = "2026-08-29-ESP-SMOOTH-RECOVERY-1"
+-- FFTM_MAIN_BUILD = "2026-08-29-ESP-BOXING-M2-1"
 --// INS UI
 local Library = {
     Raw = loadstring(game:HttpGet(
@@ -208,7 +208,7 @@ local Camera = workspace.CurrentCamera
 --==================================================
 -- FFTM REMOTE SESSION CONTROL
 --==================================================
-FFTM_MAIN_VERSION = "2026-08-29-ESP-SMOOTH-RECOVERY-1"
+FFTM_MAIN_VERSION = "2026-08-29-ESP-BOXING-M2-1"
 FFTM_API_URL = "https://fftm-parry-api.voidlinksbuisness.workers.dev"
 FFTM_RUNNING = true
 FFTM_LAST_HEARTBEAT_AT = -1000000
@@ -2646,6 +2646,46 @@ function AliDodgeIntoTarget(targetCharacter)
     end)
 end
 
+function AliDodgeAwayFromTarget(targetCharacter)
+    BlockEnd()
+    ReleaseAliMoveKey()
+
+    local towardKey, towardName = GetMoveKeyTowardTarget(targetCharacter)
+    local moveKey = MoveKeys.S
+    local moveName = "S"
+
+    if towardKey == MoveKeys.W then
+        moveKey, moveName = MoveKeys.S, "S"
+    elseif towardKey == MoveKeys.S then
+        moveKey, moveName = MoveKeys.W, "W"
+    elseif towardKey == MoveKeys.A then
+        moveKey, moveName = MoveKeys.D, "D"
+    elseif towardKey == MoveKeys.D then
+        moveKey, moveName = MoveKeys.A, "A"
+    end
+
+    AliInjectedMoveKey = moveKey
+    print("[Boxing M2 Escape] " .. moveName .. " DOWN (away from " .. towardName .. ")")
+    keypress(moveKey)
+
+    scheduler.delay(0.05, function()
+        print("[Boxing M2 Escape] Q DASH")
+        for i = 1, 12 do
+            keypress(DodgeKey)
+            keyrelease(DodgeKey)
+        end
+    end)
+
+    scheduler.delay(0.18, function()
+        print("[Boxing M2 Escape] " .. moveName .. " UP")
+        ReleaseAliMoveKey()
+    end)
+
+    scheduler.delay(0.35, function()
+        ReleaseAliMoveKey()
+    end)
+end
+
 function VisualRuntime.IsHeavyAttack(attackConfig)
     local displayName = string.lower(tostring(attackConfig.DisplayName or ""))
     return attackConfig.Heavy == true
@@ -3173,7 +3213,20 @@ local function ExecuteParry(regData, attackConfig, targetCharacter)
     local isHeavy = VisualRuntime.IsHeavyAttack(attackConfig)
 
     if isHeavy and AutoAliCounterToggle.Get() then
-        AliDodgeIntoTarget(targetCharacter)
+        local isBoxingM2 =
+            tostring(attackConfig.Style) == "BoxingAnims"
+            and string.lower(tostring(attackConfig.DisplayName or "")) == "m2"
+
+        if isBoxingM2 then
+            -- Boxing M2 has a delayed custom parry sequence. Auto Ali normally
+            -- bypasses custom handlers, so give this one attack a reliable
+            -- escape that cannot be retriggered by the same animation.
+            regData.Processed = true
+            AliDodgeAwayFromTarget(targetCharacter)
+        else
+            AliDodgeIntoTarget(targetCharacter)
+        end
+
         print(string.format("Ali Counter triggered by [%s | %s]",
             tostring(attackConfig.Style),
             tostring(attackConfig.DisplayName)))
