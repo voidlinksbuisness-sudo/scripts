@@ -1,4 +1,4 @@
--- FFTM_MAIN_BUILD = "2026-08-29-ANIMATION-ID-TOGGLE-1"
+-- FFTM_MAIN_BUILD = "2026-08-29-ESP-RECOVERY-2"
 --// INS UI
 local Library = {
     Raw = loadstring(game:HttpGet(
@@ -208,7 +208,7 @@ local Camera = workspace.CurrentCamera
 --==================================================
 -- FFTM REMOTE SESSION CONTROL
 --==================================================
-FFTM_MAIN_VERSION = "2026-08-29-ANIMATION-ID-TOGGLE-1"
+FFTM_MAIN_VERSION = "2026-08-29-ESP-RECOVERY-2"
 FFTM_API_URL = "https://fftm-parry-api.voidlinksbuisness.workers.dev"
 FFTM_RUNNING = true
 FFTM_LAST_HEARTBEAT_AT = -1000000
@@ -441,7 +441,15 @@ function VisualRuntime.RefreshPlayers()
     local playerIndices = VisualRuntime.PlayerIndices
     local characterCache = VisualRuntime.CharacterCache
 
-    local latestPlayers = Players:GetPlayers()
+    local refreshOk, latestPlayers = pcall(function()
+        return Players:GetPlayers()
+    end)
+
+    -- Keep the last valid cache when Matcha briefly fails enumeration. An
+    -- empty partial rebuild makes every overlay jump or disappear together.
+    if not refreshOk or type(latestPlayers) ~= "table" then
+        return false
+    end
     local playerSetChanged = #players ~= #latestPlayers
 
     if not playerSetChanged then
@@ -470,6 +478,8 @@ function VisualRuntime.RefreshPlayers()
             characterCache[player] = nil
         end
     end
+
+    return true
 end
 
 VisualRuntime.RefreshPlayers()
@@ -540,6 +550,49 @@ end
 local espBoxes = {}
 local tracerLines = {}
 local healthTexts = {}
+
+function VisualRuntime.RemoveDrawing(drawing)
+    if not drawing then
+        return
+    end
+
+    pcall(function()
+        drawing.Visible = false
+        drawing:Remove()
+    end)
+end
+
+function VisualRuntime.ResetEspSlot(index)
+    VisualRuntime.RemoveDrawing(espBoxes[index])
+    VisualRuntime.RemoveDrawing(tracerLines[index])
+    espBoxes[index] = nil
+    tracerLines[index] = nil
+end
+
+function VisualRuntime.ResetHealthSlot(index)
+    VisualRuntime.RemoveDrawing(healthTexts[index])
+    healthTexts[index] = nil
+    VisualRuntime.HealthTextValues[index] = nil
+end
+
+function VisualRuntime.ResetBaseDrawingPools()
+    for _, drawing in pairs(espBoxes) do
+        VisualRuntime.RemoveDrawing(drawing)
+    end
+
+    for _, drawing in pairs(tracerLines) do
+        VisualRuntime.RemoveDrawing(drawing)
+    end
+
+    for _, drawing in pairs(healthTexts) do
+        VisualRuntime.RemoveDrawing(drawing)
+    end
+
+    table.clear(espBoxes)
+    table.clear(tracerLines)
+    table.clear(healthTexts)
+    table.clear(VisualRuntime.HealthTextValues)
+end
 
 --// ESP CONFIG
 local DEFAULT_ESP_DISTANCE_SQUARED = 50 * 50
@@ -722,9 +775,13 @@ function VisualRuntime.UpdateEspPlayer(player, index)
         if distanceSquared <= frame.MaxDistanceSquared
             and not nearSelf(pos, frame.MyPos) then
 
-            local screenPos, onScreen = WorldToScreen(pos)
+            local projectionOk, screenPos, onScreen = pcall(function()
+                return WorldToScreen(pos)
+            end)
 
-            if onScreen
+            if projectionOk
+                and onScreen
+                and screenPos
                 and screenPos.X >= 0
                 and screenPos.X <= frame.Viewport.X
                 and screenPos.Y >= 0
@@ -816,7 +873,7 @@ local function updateEspTracers()
 
         local ok, err = pcall(VisualRuntime.UpdateEspPlayer, player, count)
         if not ok then
-            VisualRuntime.HideEspSlot(count)
+            VisualRuntime.ResetEspSlot(count)
             VisualRuntime.ReportPlayerVisualError(player, err)
         end
     end
@@ -847,11 +904,15 @@ function VisualRuntime.UpdateHealthPlayer(player, index)
         local distanceSquared = dx * dx + dy * dy + dz * dz
 
         if distanceSquared <= frame.MaxDistanceSquared then
-            local screenPosition, onScreen = WorldToScreen(
-                position + VisualRuntime.HealthHeadOffset
-            )
+            local projectionOk, screenPosition, onScreen = pcall(function()
+                return WorldToScreen(
+                    position + VisualRuntime.HealthHeadOffset
+                )
+            end)
 
-            if onScreen
+            if projectionOk
+                and onScreen
+                and screenPosition
                 and screenPosition.X >= 0
                 and screenPosition.X <= frame.Viewport.X
                 and screenPosition.Y >= 0
@@ -950,7 +1011,7 @@ local function updateHealth()
 
             local ok, err = pcall(VisualRuntime.UpdateHealthPlayer, player, count)
             if not ok then
-                VisualRuntime.HideHealthSlot(count)
+                VisualRuntime.ResetHealthSlot(count)
                 VisualRuntime.ReportPlayerVisualError(player, err)
             end
         end
@@ -980,6 +1041,7 @@ function VisualRuntime.RunBaseVisuals()
 
     -- Never let one stale Roblox instance or projection failure permanently
     -- disconnect RenderStepped with the last frame still visible.
+    VisualRuntime.ResetBaseDrawingPools()
     VisualRuntime.HideAllBaseDrawings()
 
     local now = os.clock()
