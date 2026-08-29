@@ -293,8 +293,10 @@ end
 
 local function removeDrawing(drawing)
 	if drawing then
-		drawing.Visible = false
-		drawing:Remove()
+		pcall(function()
+			drawing.Visible = false
+			drawing:Remove()
+		end)
 	end
 end
 
@@ -319,23 +321,37 @@ end
 local function refreshCharacters()
 	for _, player in ipairs(playersCache) do
 		local data = characterCache[player]
-		local character = player.Character
+		local character = data and player.Character
 
-		if data.Character ~= character then
+		if data and data.Character ~= character then
 			data.Character = character
 			data.Root = character and character:FindFirstChild("HumanoidRootPart") or nil
-		elseif character and (not data.Root or data.Root.Parent ~= character) then
+		elseif data and character and (not data.Root or data.Root.Parent ~= character) then
 			data.Root = character:FindFirstChild("HumanoidRootPart")
 		end
 	end
 end
 
-for _, player in ipairs(Players:GetPlayers()) do
-	addPlayer(player)
+local function reconcilePlayers()
+	local activePlayers = {}
+
+	for _, player in ipairs(Players:GetPlayers()) do
+		activePlayers[player] = true
+		addPlayer(player)
+	end
+
+	for index = #playersCache, 1, -1 do
+		local player = playersCache[index]
+		if not activePlayers[player] then
+			removePlayer(player)
+		end
+	end
 end
 
-Players.PlayerAdded:Connect(addPlayer)
-Players.PlayerRemoving:Connect(removePlayer)
+-- Matcha does not consistently expose PlayerAdded/PlayerRemoving. Polling once
+-- per second also guarantees departed players and their Drawing objects are
+-- reconciled even when an event is missed.
+reconcilePlayers()
 refreshCharacters()
 
 --// LAZY DRAWINGS
@@ -528,8 +544,9 @@ end)
 local visualTimer = UPDATE_INTERVAL
 local characterTimer = CHARACTER_REFRESH_INTERVAL
 local visualsWereActive = false
+local lastVisualErrorAt = -1000000
 
-RunService.RenderStepped:Connect(function(deltaTime)
+local function updateVisualFrame(deltaTime)
 	updateMenu()
 
 	local visualsActive = state.ESP or state.Tracers
@@ -541,12 +558,19 @@ RunService.RenderStepped:Connect(function(deltaTime)
 		return
 	end
 
+	if not visualsWereActive then
+		reconcilePlayers()
+		refreshCharacters()
+		characterTimer = 0
+	end
+
 	visualsWereActive = true
 	characterTimer += deltaTime
 	visualTimer += deltaTime
 
 	if characterTimer >= CHARACTER_REFRESH_INTERVAL then
 		characterTimer = 0
+		reconcilePlayers()
 		refreshCharacters()
 	end
 
@@ -556,6 +580,23 @@ RunService.RenderStepped:Connect(function(deltaTime)
 
 	visualTimer = 0
 	updateEspTracers()
+end
+
+RunService.RenderStepped:Connect(function(deltaTime)
+	local ok, err = pcall(updateVisualFrame, deltaTime)
+	if ok then
+		return
+	end
+
+	-- A transient destroyed-instance error must not kill the render connection
+	-- and leave the last successful ESP frame frozen on screen.
+	hideAllVisuals()
+
+	local now = os.clock()
+	if now - lastVisualErrorAt >= 5 then
+		lastVisualErrorAt = now
+		warn("[ESP] Recovered from: " .. tostring(err))
+	end
 end)
 
 updateMenu()
