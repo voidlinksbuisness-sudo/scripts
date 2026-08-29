@@ -1,4 +1,4 @@
--- FFTM_MAIN_BUILD = "2026-08-29-AUTOPARRY-STATUS-1"
+-- FFTM_MAIN_BUILD = "2026-08-29-TRANSPARENT-STATUS-1"
 --// INS UI
 local Library = {
     Raw = loadstring(game:HttpGet(
@@ -208,7 +208,7 @@ local Camera = workspace.CurrentCamera
 --==================================================
 -- FFTM REMOTE SESSION CONTROL
 --==================================================
-FFTM_MAIN_VERSION = "2026-08-29-AUTOPARRY-STATUS-1"
+FFTM_MAIN_VERSION = "2026-08-29-TRANSPARENT-STATUS-1"
 FFTM_API_URL = "https://fftm-parry-api.voidlinksbuisness.workers.dev"
 FFTM_RUNNING = true
 FFTM_LAST_HEARTBEAT_AT = -1000000
@@ -1042,14 +1042,6 @@ local function NewValueControl(defaultValue)
     return control
 end
 
-VisualRuntime.AutoParryStatusBackground = Drawing.new("Square")
-VisualRuntime.AutoParryStatusBackground.Size = Vector2.new(180, 30)
-VisualRuntime.AutoParryStatusBackground.Filled = true
-VisualRuntime.AutoParryStatusBackground.Color = Color3.fromRGB(12, 12, 12)
-VisualRuntime.AutoParryStatusBackground.Transparency = 0.78
-VisualRuntime.AutoParryStatusBackground.ZIndex = 49
-VisualRuntime.AutoParryStatusBackground.Visible = true
-
 VisualRuntime.AutoParryStatus = Drawing.new("Text")
 VisualRuntime.AutoParryStatus.Size = 18
 VisualRuntime.AutoParryStatus.Center = true
@@ -1066,8 +1058,6 @@ function VisualRuntime.PositionAutoParryStatus()
     end
 
     VisualRuntime.AutoParryStatusViewport = viewport
-    VisualRuntime.AutoParryStatusBackground.Position =
-        Vector2.new(viewport.X - 198, viewport.Y - 48)
     VisualRuntime.AutoParryStatus.Position =
         Vector2.new(viewport.X - 108, viewport.Y - 42)
 end
@@ -1080,7 +1070,6 @@ function VisualRuntime.UpdateAutoParryStatus(enabled)
         and Color3.fromRGB(90, 255, 130)
         or Color3.fromRGB(255, 90, 90)
     VisualRuntime.AutoParryStatus.Visible = true
-    VisualRuntime.AutoParryStatusBackground.Visible = true
     VisualRuntime.PositionAutoParryStatus()
 end
 
@@ -2439,9 +2428,7 @@ function FFTMShutdown()
 
     pcall(function()
         VisualRuntime.AutoParryStatus.Visible = false
-        VisualRuntime.AutoParryStatusBackground.Visible = false
         VisualRuntime.AutoParryStatus:Remove()
-        VisualRuntime.AutoParryStatusBackground:Remove()
     end)
 
     pcall(function()
