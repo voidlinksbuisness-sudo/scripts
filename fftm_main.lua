@@ -1,4 +1,4 @@
--- FFTM_MAIN_BUILD = "2026-08-29-ESP-RECOVERY-2"
+-- FFTM_MAIN_BUILD = "2026-08-29-CONFIG-KEYBIND-GUARD-1"
 --// INS UI
 local Library = {
     Raw = loadstring(game:HttpGet(
@@ -208,7 +208,7 @@ local Camera = workspace.CurrentCamera
 --==================================================
 -- FFTM REMOTE SESSION CONTROL
 --==================================================
-FFTM_MAIN_VERSION = "2026-08-29-ESP-RECOVERY-2"
+FFTM_MAIN_VERSION = "2026-08-29-CONFIG-KEYBIND-GUARD-1"
 FFTM_API_URL = "https://fftm-parry-api.voidlinksbuisness.workers.dev"
 FFTM_RUNNING = true
 FFTM_LAST_HEARTBEAT_AT = -1000000
@@ -4131,16 +4131,28 @@ RegisterToggleKeybind("self_health", "Self Health", "SelfHealth",
     function() return state.SelfHealth end,
     function(value) state.SelfHealth = value end)
 
-local function SetKeybind(spec, value)
+local function SetKeybind(spec, value, preserveIfUnbound)
     if typeof(value) == "EnumItem" then
         value = value.Name
     end
 
-    spec.KeyName = type(value) == "string"
-        and value ~= ""
-        and value ~= "None"
-        and value
-        or nil
+    if type(value) == "string" then
+        value = value:match("^%s*(.-)%s*$")
+        if value == "" or string.lower(value) == "none" then
+            value = nil
+        end
+    else
+        value = nil
+    end
+
+    -- Only config loading protects essential shortcuts. Manual clearing
+    -- through the Keybinds page must still work normally.
+    if preserveIfUnbound and value == nil then
+        return false
+    end
+
+    spec.KeyName = value
+    return true
 end
 
 local function AddKeybindControl(spec)
@@ -4222,13 +4234,15 @@ local function ApplyKeybindConfig(config)
             or id
         local spec = KeybindSpecsById[resolvedId]
 
-        if spec and type(value) == "string" then
-            SetKeybind(spec, value)
-
+        if spec and type(value) == "string" and SetKeybind(
+            spec,
+            value,
+            resolvedId == "menu_toggle" or resolvedId == "cycle_target"
+        ) then
             local control = KeybindControls[resolvedId]
             if control and type(control.SetValue) == "function" then
                 pcall(function()
-                    control:SetValue(value == "None" and nil or value, "Toggle")
+                    control:SetValue(spec.KeyName, "Toggle")
                 end)
             end
         end
@@ -4703,7 +4717,7 @@ function SetupPresetConfigUI()
 
     SafeAddButton(ConfigTab, {
         Title = "Load",
-        Description = "Loads the selected preset and synchronizes its values with the UI.",
+        Description = "Loads the selected preset. Blank menu and targeting keybinds keep your current keys.",
 
         Callback = function()
             -- Re-read the disk copy first. This makes Load use the persisted
@@ -4712,7 +4726,7 @@ function SetupPresetConfigUI()
 
             local config = Configs[SelectedConfig]
 
-            if type(config) ~= "table" then
+            if type(config) ~= "table" or next(config) == nil then
                 Notify(
                     "Config",
                     SelectedConfig .. " is empty.",
