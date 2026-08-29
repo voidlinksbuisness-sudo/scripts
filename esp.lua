@@ -1,3 +1,4 @@
+-- ESP_BUILD = "2026-08-29-ESP-RECOVERY-2"
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
@@ -278,6 +279,7 @@ end
 local playersCache = {}
 local characterCache = {}
 local drawingsByPlayer = {}
+local lastPlayerErrorAt = -1000000
 
 local function addPlayer(player)
 	if player == LocalPlayer or characterCache[player] then
@@ -300,6 +302,24 @@ local function removeDrawing(drawing)
 	end
 end
 
+local function resetPlayerDrawings(player)
+    local drawings = drawingsByPlayer[player]
+    if drawings then
+        removeDrawing(drawings.Box)
+        removeDrawing(drawings.Tracer)
+        drawingsByPlayer[player] = nil
+    end
+end
+
+local function resetAllPlayerDrawings()
+    for _, drawings in pairs(drawingsByPlayer) do
+        removeDrawing(drawings.Box)
+        removeDrawing(drawings.Tracer)
+    end
+
+    table.clear(drawingsByPlayer)
+end
+
 local function removePlayer(player)
 	for index, cachedPlayer in ipairs(playersCache) do
 		if cachedPlayer == player then
@@ -310,12 +330,7 @@ local function removePlayer(player)
 
 	characterCache[player] = nil
 
-	local drawings = drawingsByPlayer[player]
-	if drawings then
-		removeDrawing(drawings.Box)
-		removeDrawing(drawings.Tracer)
-		drawingsByPlayer[player] = nil
-	end
+	resetPlayerDrawings(player)
 end
 
 local function refreshCharacter(player)
@@ -350,8 +365,17 @@ end
 
 local function reconcilePlayers()
 	local activePlayers = {}
+	local refreshOk, latestPlayers = pcall(function()
+		return Players:GetPlayers()
+	end)
 
-	for _, player in ipairs(Players:GetPlayers()) do
+	-- Keep the last valid list when Matcha briefly fails enumeration. Clearing
+	-- it creates a visible all-player blink and can leave stale drawings.
+	if not refreshOk or type(latestPlayers) ~= "table" then
+		return false
+	end
+
+	for _, player in ipairs(latestPlayers) do
 		activePlayers[player] = true
 		addPlayer(player)
 	end
@@ -362,6 +386,8 @@ local function reconcilePlayers()
 			removePlayer(player)
 		end
 	end
+
+	return true
 end
 
 -- Matcha does not consistently expose PlayerAdded/PlayerRemoving. Polling once
@@ -449,8 +475,14 @@ local function updatePlayerVisual(
 		distanceSquared = dx * dx + dy * dy + dz * dz
 
 		if distanceSquared <= maxDistanceSquared then
-			screenPos, visible = WorldToScreen(position)
-			visible = visible
+			local projectionOk, projectedPosition, projectedVisible = pcall(function()
+				return WorldToScreen(position)
+			end)
+
+			screenPos = projectionOk and projectedPosition or nil
+			visible = projectionOk
+				and projectedVisible
+				and screenPos ~= nil
 				and screenPos.X >= 0
 				and screenPos.X <= viewport.X
 				and screenPos.Y >= 0
@@ -510,12 +542,13 @@ local function updateEspTracers()
 
 		if not ok then
 			characterCache[player] = nil
-			local drawings = drawingsByPlayer[player]
-			pcall(function()
-				if drawings and drawings.Box then drawings.Box.Visible = false end
-				if drawings and drawings.Tracer then drawings.Tracer.Visible = false end
-			end)
-			warn("[ESP] Skipped one stale player: " .. tostring(err))
+			resetPlayerDrawings(player)
+
+			local now = os.clock()
+			if now - lastPlayerErrorAt >= 5 then
+				lastPlayerErrorAt = now
+				warn("[ESP] Rebuilt one broken player slot: " .. tostring(err))
+			end
 		end
 	end
 end
@@ -631,7 +664,7 @@ local function updateVisualFrame(deltaTime)
 		return
 	end
 
-	visualTimer = 0
+	visualTimer %= UPDATE_INTERVAL
 	updateEspTracers()
 end
 
@@ -643,7 +676,7 @@ RunService.RenderStepped:Connect(function(deltaTime)
 
 	-- A transient destroyed-instance error must not kill the render connection
 	-- and leave the last successful ESP frame frozen on screen.
-	hideAllVisuals()
+	resetAllPlayerDrawings()
 
 	local now = os.clock()
 	if now - lastVisualErrorAt >= 5 then
