@@ -1,4 +1,4 @@
--- FFTM_MAIN_BUILD = "2026-08-29-CURSOR-MULTITARGET-2"
+-- FFTM_MAIN_BUILD = "2026-08-29-PARRY-ESP-TOGGLE-1"
 --// INS UI
 local Library = {
     Raw = loadstring(game:HttpGet(
@@ -208,7 +208,7 @@ local Camera = workspace.CurrentCamera
 --==================================================
 -- FFTM REMOTE SESSION CONTROL
 --==================================================
-FFTM_MAIN_VERSION = "2026-08-29-CURSOR-MULTITARGET-2"
+FFTM_MAIN_VERSION = "2026-08-29-PARRY-ESP-TOGGLE-1"
 FFTM_API_URL = "https://fftm-parry-api.voidlinksbuisness.workers.dev"
 FFTM_RUNNING = true
 FFTM_LAST_HEARTBEAT_AT = -1000000
@@ -430,6 +430,8 @@ local VisualRuntime = {
     PlayerSetChanged = false,
     LastVisualErrorAt = -1000000,
     LastParryEspErrorAt = -1000000,
+    AutoParryEspEnabled = true,
+    AutoParryEspDirty = false,
     RefreshRequested = false,
     EspFrame = {},
     HealthFrame = {},
@@ -1182,6 +1184,16 @@ function VisualRuntime.SetAutoParryStatusVisible(visible)
         VisualRuntime.AutoParryStatusEnabled
 end
 
+function VisualRuntime.SetAutoParryEspEnabled(enabled)
+    VisualRuntime.AutoParryEspEnabled = enabled == true
+    VisualRuntime.AutoParryEspDirty = true
+
+    -- Once setup is complete, toggles can refresh the overlay immediately.
+    if type(VisualRuntime.RefreshAutoParryEspTrackers) == "function" then
+        VisualRuntime.RefreshAutoParryEspTrackers()
+    end
+end
+
 local IncludeLocalCharacter = false
 
 -- Legacy logger refresh hook. The INS UI version updated text labels here;
@@ -1604,6 +1616,16 @@ UIToggles.ParryStatus = SafeAddToggle(AutoParryTab.Extras, {
     Default = true,
     Callback = function(value)
         VisualRuntime.SetAutoParryStatusVisible(value)
+    end
+})
+
+UIToggles.AutoParryESP = SafeAddToggle(AutoParryTab.Extras, {
+    Id = "auto_parry_esp",
+    Title = "Auto Parry ESP",
+    Description = "Shows or hides the status and animation text above selected targets without changing Auto Parry targeting.",
+    Default = true,
+    Callback = function(value)
+        VisualRuntime.SetAutoParryEspEnabled(value)
     end
 })
 
@@ -3095,6 +3117,10 @@ local function CheckCharacterDistance(localRoot, targetRoot)
 end
 
 local function UpdateCharacterESP(character, Distance)
+    if not VisualRuntime.AutoParryEspEnabled then
+        return true
+    end
+
     if not AutoParryToggle.Get() then 
         if EspTrackers[character] and EspTrackers[character].ChangeText then  
             EspTrackers[character]:ChangeText("Name", "AUTO PARRY IS DISARMED", COLOR_RED)  
@@ -3369,6 +3395,12 @@ end
 -- ==========================================
 
 local function ProcessEspAndLogging()
+    if VisualRuntime.AutoParryEspDirty
+        and type(VisualRuntime.RefreshAutoParryEspTrackers) == "function" then
+
+        VisualRuntime.RefreshAutoParryEspTrackers()
+    end
+
     for i = #TargetCharacters, 1, -1 do
         local character = TargetCharacters[i]
         local tracker = EspTrackers[character]
@@ -3399,13 +3431,22 @@ local function ProcessEspAndLogging()
             continue
         end
 
+        if not VisualRuntime.AutoParryEspEnabled then
+            continue
+        end
+
         -- A missing/destroyed ESP tracker must never remove a valid combat
         -- target. Skip only the optional visual/logging work for this pass.
         if type(tracker) ~= "table"
             or type(tracker.ChangeText) ~= "function" then
 
-            EspTrackers[character] = nil
-            continue
+            tracker = VisualRuntime.CreateAutoParryEspTracker(character)
+
+            if type(tracker) ~= "table"
+                or type(tracker.ChangeText) ~= "function" then
+
+                continue
+            end
         end
 
         -- Fetch active animations using your AnimationTracker system
@@ -3461,7 +3502,7 @@ local function ProcessEspAndLogging()
     end
 end
 
-local function ClearAllEspTrackers()
+function VisualRuntime.ClearAutoParryEspTrackers()
     for char, tracker in pairs(EspTrackers) do
         if tracker and tracker.Destroy then            
             if ESP_Utility.TrackersToUpdate[tracker] then
@@ -3475,6 +3516,45 @@ local function ClearAllEspTrackers()
     table.clear(EspTrackers) -- Safer than re-assigning {} to preserve table memory references
 end
 
+function VisualRuntime.CreateAutoParryEspTracker(character)
+    if not VisualRuntime.AutoParryEspEnabled
+        or not character
+        or IsCharacterWhitelisted(character) then
+
+        return nil
+    end
+
+    local root = character:FindFirstChild("HumanoidRootPart")
+    if not root then
+        return nil
+    end
+
+    local tracker = ESP_Utility.NewTracker(
+        root,
+        character.Name,
+        COLOR_RED
+    )
+
+    if tracker and tracker.Name then
+        tracker:AddText("CurrentlyPlaying", nil, "???")
+    end
+
+    EspTrackers[character] = tracker
+    return tracker
+end
+
+function VisualRuntime.RefreshAutoParryEspTrackers()
+    VisualRuntime.ClearAutoParryEspTrackers()
+
+    if VisualRuntime.AutoParryEspEnabled then
+        for _, character in ipairs(TargetCharacters) do
+            VisualRuntime.CreateAutoParryEspTracker(character)
+        end
+    end
+
+    VisualRuntime.AutoParryEspDirty = false
+end
+
 local function UpdateTargetCharacters(charactersList)
     if #charactersList > 0 then
         table.clear(TargetSelectionState.LastSelected)
@@ -3485,7 +3565,7 @@ local function UpdateTargetCharacters(charactersList)
         end
     end
 
-    ClearAllEspTrackers()
+    VisualRuntime.ClearAutoParryEspTrackers()
     ClearSelectedMarkers()
     table.clear(TargetCharacters)
 
@@ -3493,23 +3573,11 @@ local function UpdateTargetCharacters(charactersList)
         if character and not IsCharacterWhitelisted(character) then
             table.insert(TargetCharacters, character)
 
-            if character:FindFirstChild("HumanoidRootPart") then
-                local tracker = ESP_Utility.NewTracker(
-                    character.HumanoidRootPart,
-                    character.Name,
-                    COLOR_RED
-                )
-
-                if tracker and tracker.Name then
-                    tracker:AddText("CurrentlyPlaying", nil, "???")
-                end
-
-                EspTrackers[character] = tracker
-            end
-
             AddSelectedMarker(character)
         end
     end
+
+    VisualRuntime.RefreshAutoParryEspTrackers()
 end
 
 function CycleEvent(manualCycle)
@@ -3960,6 +4028,9 @@ RegisterToggleKeybind("parry_debug", "Debug Parry", "ParryDebug",
 RegisterToggleKeybind("parry_status", "Parry Status", "ParryStatus",
     function() return VisualRuntime.AutoParryStatusEnabled end,
     VisualRuntime.SetAutoParryStatusVisible)
+RegisterToggleKeybind("auto_parry_esp", "Auto Parry ESP", "AutoParryESP",
+    function() return VisualRuntime.AutoParryEspEnabled end,
+    VisualRuntime.SetAutoParryEspEnabled)
 
 RegisterToggleKeybind("auto_target_nearest", "Auto Target Nearest", "AutoTargetNearest",
     AutoTargetNearest.Get, AutoTargetNearest.Set)
@@ -4323,6 +4394,7 @@ function SetupPresetConfigUI()
                 AutoPlay = AutoPlayToggle.Get(),
                 ParryDebug = ParryDebugToggle.Get(),
                 ParryStatus = VisualRuntime.AutoParryStatusEnabled,
+                AutoParryESP = VisualRuntime.AutoParryEspEnabled,
                 PingCompensation = PingCompensateToggle.Get(),
                 HeightMultiplier = HeightToggle.Get(),
 
@@ -4447,6 +4519,11 @@ function SetupPresetConfigUI()
                 "ParryStatus",
                 combat.ParryStatus,
                 VisualRuntime.SetAutoParryStatusVisible
+            )
+            ApplyToggleControl(
+                "AutoParryESP",
+                combat.AutoParryESP,
+                VisualRuntime.SetAutoParryEspEnabled
             )
             ApplyToggleControl(
                 "PingCompensation",
