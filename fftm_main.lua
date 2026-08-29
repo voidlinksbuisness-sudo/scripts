@@ -1,4 +1,4 @@
--- FFTM_MAIN_BUILD = "2026-08-29-PARRY-STATUS-TOGGLE-1"
+-- FFTM_MAIN_BUILD = "2026-08-29-ALI-ESP-STABILITY-1"
 --// INS UI
 local Library = {
     Raw = loadstring(game:HttpGet(
@@ -208,7 +208,7 @@ local Camera = workspace.CurrentCamera
 --==================================================
 -- FFTM REMOTE SESSION CONTROL
 --==================================================
-FFTM_MAIN_VERSION = "2026-08-29-PARRY-STATUS-TOGGLE-1"
+FFTM_MAIN_VERSION = "2026-08-29-ALI-ESP-STABILITY-1"
 FFTM_API_URL = "https://fftm-parry-api.voidlinksbuisness.workers.dev"
 FFTM_RUNNING = true
 FFTM_LAST_HEARTBEAT_AT = -1000000
@@ -427,6 +427,9 @@ local VisualRuntime = {
     EspTracersWereActive = false,
     PlayerHealthWasActive = false,
     HealthHeadOffset = Vector3.new(0, 3, 0),
+    PlayerSetChanged = false,
+    LastVisualErrorAt = -1000000,
+    LastParryEspErrorAt = -1000000,
 }
 
 function VisualRuntime.RefreshPlayers()
@@ -434,12 +437,28 @@ function VisualRuntime.RefreshPlayers()
     local playerIndices = VisualRuntime.PlayerIndices
     local characterCache = VisualRuntime.CharacterCache
 
+    local latestPlayers = Players:GetPlayers()
+    local playerSetChanged = #players ~= #latestPlayers
+
+    if not playerSetChanged then
+        for index, player in ipairs(latestPlayers) do
+            if players[index] ~= player then
+                playerSetChanged = true
+                break
+            end
+        end
+    end
+
     table.clear(players)
     table.clear(playerIndices)
 
-    for _, player in ipairs(Players:GetPlayers()) do
+    for _, player in ipairs(latestPlayers) do
         players[#players + 1] = player
         playerIndices[player] = #players
+    end
+
+    if playerSetChanged then
+        VisualRuntime.PlayerSetChanged = true
     end
 
     for player in pairs(characterCache) do
@@ -452,7 +471,15 @@ end
 VisualRuntime.RefreshPlayers()
 
 function VisualRuntime.IsPlayerActive(player)
-    return player == LocalPlayer or player.Parent == Players
+    if player == LocalPlayer then
+        return true
+    end
+
+    local ok, parent = pcall(function()
+        return player and player.Parent
+    end)
+
+    return ok and parent == Players
 end
 
 local function getCharacterData(player)
@@ -637,13 +664,26 @@ end
 
 --// HIDE UNUSED DRAWINGS
 local function hidePoolFrom(pool, fromIndex)
-    for i = fromIndex, #pool do
-        local drawing = pool[i]
-
-        if drawing and drawing.Visible then
-            drawing.Visible = false
+    -- Lazy allocation makes these pools sparse. The length operator can stop
+    -- at the first hole, leaving later drawings frozen on screen.
+    for index, drawing in pairs(pool) do
+        if type(index) == "number" and index >= fromIndex and drawing then
+            pcall(function()
+                if drawing.Visible then
+                    drawing.Visible = false
+                end
+            end)
         end
     end
+end
+
+function VisualRuntime.HideAllBaseDrawings()
+    pcall(function()
+        myHealthText.Visible = false
+    end)
+    hidePoolFrom(espBoxes, 1)
+    hidePoolFrom(tracerLines, 1)
+    hidePoolFrom(healthTexts, 1)
 end
 
 --// ESP + TRACERS
@@ -887,6 +927,37 @@ local function updateHealth()
 
     -- Hide unused health drawings
     hidePoolFrom(healthTexts, count + 1)
+end
+
+function VisualRuntime.UpdateBaseVisuals()
+    if VisualRuntime.PlayerSetChanged then
+        -- Pool slots are index-based. Clear the previous frame before the new
+        -- player order reuses those slots so a departed player cannot persist.
+        VisualRuntime.HideAllBaseDrawings()
+        VisualRuntime.PlayerSetChanged = false
+    end
+
+    updateEspTracers()
+    updateHealth()
+end
+
+function VisualRuntime.RunBaseVisuals()
+    local ok, err = pcall(VisualRuntime.UpdateBaseVisuals)
+    if ok then
+        return true
+    end
+
+    -- Never let one stale Roblox instance or projection failure permanently
+    -- disconnect RenderStepped with the last frame still visible.
+    VisualRuntime.HideAllBaseDrawings()
+
+    local now = os.clock()
+    if now - VisualRuntime.LastVisualErrorAt >= 5 then
+        VisualRuntime.LastVisualErrorAt = now
+        warn("[FFTM Visuals] Recovered from: " .. tostring(err))
+    end
+
+    return false
 end
 
 --==================================================
@@ -2185,25 +2256,44 @@ end
 function UpdateSelectedMarkers()
     for character, markerText in pairs(TargetSelectionState.Markers) do
         local visible = false
+        local characterAlive = false
 
-        if character and markerText then
-            local anchor =
-                character:FindFirstChild("Head")
-                or character:FindFirstChild("HumanoidRootPart")
+        pcall(function()
+            characterAlive = character ~= nil and character.Parent ~= nil
+        end)
 
-            if anchor then
-                local screenPos, onScreen =
-                    WorldToScreen(anchor.Position + Vector3.new(0, 1.5, 0))
+        if characterAlive and markerText then
+            local ok = pcall(function()
+                local anchor =
+                    character:FindFirstChild("Head")
+                    or character:FindFirstChild("HumanoidRootPart")
 
-                if onScreen and screenPos then
-                    markerText.Position =
-                        Vector2.new(screenPos.X, screenPos.Y)
+                if anchor then
+                    local screenPos, onScreen =
+                        WorldToScreen(anchor.Position + Vector3.new(0, 1.5, 0))
 
-                    visible = true
+                    if onScreen and screenPos then
+                        markerText.Position =
+                            Vector2.new(screenPos.X, screenPos.Y)
+
+                        visible = true
+                    end
                 end
-            end
 
-            markerText.Visible = visible
+                markerText.Visible = visible
+            end)
+
+            if not ok then
+                pcall(function()
+                    markerText.Visible = false
+                end)
+            end
+        elseif markerText then
+            pcall(function()
+                markerText.Visible = false
+                markerText:Remove()
+            end)
+            TargetSelectionState.Markers[character] = nil
         end
     end
 end
@@ -2383,18 +2473,44 @@ function GetMoveKeyTowardTarget(targetCharacter)
         return MoveKeys.W, "W"
     end
 
-    -- Convert the target direction into the local character's coordinate space.
-    -- Roblox forward is -Z, right is +X.
-    local localDirection = localRoot.CFrame:VectorToObjectSpace(offset.Unit)
+    -- Roblox maps WASD relative to the camera. Using the character CFrame can
+    -- select the opposite dodge direction while shift-lock or a side camera is
+    -- active, so compare the target against the camera's planar axes instead.
+    Camera = workspace.CurrentCamera or Camera
+    local cameraCFrame = Camera and Camera.CFrame or localRoot.CFrame
+    local targetDirection = Vector3.new(offset.X, 0, offset.Z)
+    local forward = Vector3.new(
+        cameraCFrame.LookVector.X,
+        0,
+        cameraCFrame.LookVector.Z
+    )
+    local right = Vector3.new(
+        cameraCFrame.RightVector.X,
+        0,
+        cameraCFrame.RightVector.Z
+    )
 
-    if math.abs(localDirection.X) > math.abs(localDirection.Z) then
-        if localDirection.X > 0 then
+    if targetDirection.Magnitude <= 0.001
+        or forward.Magnitude <= 0.001
+        or right.Magnitude <= 0.001 then
+        return MoveKeys.W, "W"
+    end
+
+    targetDirection = targetDirection.Unit
+    forward = forward.Unit
+    right = right.Unit
+
+    local forwardAmount = targetDirection:Dot(forward)
+    local rightAmount = targetDirection:Dot(right)
+
+    if math.abs(rightAmount) > math.abs(forwardAmount) then
+        if rightAmount > 0 then
             return MoveKeys.D, "D"
         else
             return MoveKeys.A, "A"
         end
     else
-        if localDirection.Z < 0 then
+        if forwardAmount > 0 then
             return MoveKeys.W, "W"
         else
             return MoveKeys.S, "S"
@@ -2438,10 +2554,7 @@ function FFTMShutdown()
     pcall(ClearSelectedMarkers)
 
     pcall(function()
-        myHealthText.Visible = false
-        hidePoolFrom(espBoxes, 1)
-        hidePoolFrom(tracerLines, 1)
-        hidePoolFrom(healthTexts, 1)
+        VisualRuntime.HideAllBaseDrawings()
     end)
 
     pcall(function()
@@ -2480,10 +2593,9 @@ function AliDodgeIntoTarget(targetCharacter)
     print("[Auto Ali Counter] " .. moveName .. " DOWN")
     keypress(moveKey)
 
-    -- Matcha is more reliable when we do not yield inside the attack callback.
-    -- Give movement a tiny amount of time to register, then fire the same
-    -- Q injection used by the normal Dodge() implementation.
-    scheduler.delay(0.02, function()
+    -- Let Matcha and Roblox observe the movement direction before Q. A 20 ms
+    -- window could begin and end between input samples on lower-FPS clients.
+    scheduler.delay(0.05, function()
         print("[Auto Ali Counter] Q DASH")
 
         for i = 1, 12 do
@@ -2492,16 +2604,23 @@ function AliDodgeIntoTarget(targetCharacter)
         end
     end)
 
-    -- Always release the movement direction shortly after the dash.
-    scheduler.delay(0.08, function()
+    -- Keep the direction held through the dash input, then release it.
+    scheduler.delay(0.18, function()
         print("[Auto Ali Counter] " .. moveName .. " UP")
         ReleaseAliMoveKey()
     end)
 
     -- Extra fail-safe cleanup in case the first scheduled release is missed.
-    scheduler.delay(0.20, function()
+    scheduler.delay(0.35, function()
         ReleaseAliMoveKey()
     end)
+end
+
+function VisualRuntime.IsHeavyAttack(attackConfig)
+    local displayName = string.lower(tostring(attackConfig.DisplayName or ""))
+    return attackConfig.Heavy == true
+        or string.find(displayName, "m2", 1, true) ~= nil
+        or string.find(displayName, "heavy", 1, true) ~= nil
 end
 
 function Counter(StartTime, HoldFor)
@@ -2891,6 +3010,11 @@ local function ValidateLocalCharacter()
 end
 
 local function ValidateTargetCharacter(character)
+    local ok, parent = pcall(function()
+        return character and character.Parent
+    end)
+    if not ok or not parent then return nil end
+
     local targetRoot = character:FindFirstChild("HumanoidRootPart")
     if not targetRoot then return nil end
     return targetRoot
@@ -2998,11 +3122,7 @@ local function CheckAnimationDirection(character, localCharacter, localRoot, tar
     
     local direction = (targetRoot.Position - localRoot.Position).Unit
     local distance = (targetRoot.Position - localRoot.Position).Magnitude
-    local displayName = tostring(attackConfig.DisplayName or "")
-    local isHeavy =
-        displayName == "Heavy"
-        or string.find(displayName, "M2", 1, true) ~= nil
-        or attackConfig.Heavy == true
+    local isHeavy = VisualRuntime.IsHeavyAttack(attackConfig)
   --  print(distance)
     
     if not isHeavy then -- and distance > 4 then  
@@ -3020,19 +3140,9 @@ local function ExecuteParry(regData, attackConfig, targetCharacter)
     end
     regData.LastExecuteTime = now
 
-    local displayName = tostring(attackConfig.DisplayName or "")
-    local isHeavy =
-        displayName == "Heavy"
-        or string.find(displayName, "M2", 1, true) ~= nil
-        or attackConfig.Heavy == true
+    local isHeavy = VisualRuntime.IsHeavyAttack(attackConfig)
 
-    if attackConfig.Jump then 
-        keypress(32)
-        scheduler.delay(0.06, function()
-            keyrelease(32)
-        end)
-        DodgeLockoutEnd = os.clock() + 0.2
-    elseif isHeavy and AutoAliCounterToggle.Get() then
+    if isHeavy and AutoAliCounterToggle.Get() then
         AliDodgeIntoTarget(targetCharacter)
         print(string.format("Ali Counter triggered by [%s | %s]",
             tostring(attackConfig.Style),
@@ -3042,6 +3152,12 @@ local function ExecuteParry(regData, attackConfig, targetCharacter)
         print(string.format("Counter triggered by [%s | %s]",
             tostring(attackConfig.Style),
             tostring(attackConfig.DisplayName)))
+    elseif attackConfig.Jump then
+        keypress(32)
+        scheduler.delay(0.06, function()
+            keyrelease(32)
+        end)
+        DodgeLockoutEnd = os.clock() + 0.2
     elseif isHeavy and AutoDodgeToggle.Get() then
         if AutoParryToggle.Get() then  
             Dodge()            
@@ -3090,11 +3206,7 @@ local function EvaluateAnimation(anim, character, localCharacter, localRoot, tar
     -- PARRY FUNCTION OVERRIDE
     -- Auto Counter takes priority for M2/heavy attacks, including attacks that
     -- normally have a custom ParryFunction.
-    local displayName = tostring(attackConfig.DisplayName or "")
-    local isHeavy =
-        displayName == "Heavy"
-        or string.find(displayName, "M2", 1, true) ~= nil
-        or attackConfig.Heavy == true
+    local isHeavy = VisualRuntime.IsHeavyAttack(attackConfig)
 
     if attackConfig.ParryFunction
         and not (isHeavy and (AutoCounterToggle.Get() or AutoAliCounterToggle.Get()))
@@ -3177,19 +3289,56 @@ local function ProcessEspAndLogging()
     for i = #TargetCharacters, 1, -1 do
         local character = TargetCharacters[i]
         local tracker = EspTrackers[character]
-        
-        if tracker and not tracker.ChangeText then 
-            EspTrackers[character] = nil 
-            table.remove(TargetCharacters, i) -- Safely removes and shifts elements
+
+        local characterAlive = false
+        pcall(function()
+            characterAlive = character ~= nil and character.Parent ~= nil
+        end)
+
+        if not characterAlive then
+            if type(tracker) == "table" and type(tracker.Destroy) == "function" then
+                pcall(function()
+                    tracker:Destroy()
+                end)
+            end
+
+            local marker = TargetSelectionState.Markers[character]
+            if marker then
+                pcall(function()
+                    marker.Visible = false
+                    marker:Remove()
+                end)
+                TargetSelectionState.Markers[character] = nil
+            end
+
+            EspTrackers[character] = nil
+            table.remove(TargetCharacters, i)
+            continue
+        end
+
+        -- A missing/destroyed ESP tracker must never remove a valid combat
+        -- target. Skip only the optional visual/logging work for this pass.
+        if type(tracker) ~= "table"
+            or type(tracker.ChangeText) ~= "function" then
+
+            EspTrackers[character] = nil
             continue
         end
 
         -- Fetch active animations using your AnimationTracker system
-        local activeAnimations = AnimationTracker:Update(character) or {}
+        local updateOk, activeAnimations = pcall(function()
+            return AnimationTracker:Update(character)
+        end)
+        if not updateOk or type(activeAnimations) ~= "table" then
+            activeAnimations = {}
+        end
+
         local lines = {}
         
         if #activeAnimations == 0 then 
-            tracker:ChangeText("CurrentlyPlaying", "None", COLOR_WHITE) 
+            pcall(function()
+                tracker:ChangeText("CurrentlyPlaying", "None", COLOR_WHITE)
+            end)
             continue 
         end 
 
@@ -3222,7 +3371,9 @@ local function ProcessEspAndLogging()
         end
 
         if tracker and tracker.Name then  
-            tracker:ChangeText("CurrentlyPlaying", table.concat(lines, "\n"), COLOR_WHITE) 
+            pcall(function()
+                tracker:ChangeText("CurrentlyPlaying", table.concat(lines, "\n"), COLOR_WHITE)
+            end)
         end    
     end
 end
@@ -4529,7 +4680,11 @@ function MainLoop()
             CycleEvent(false)
         end
 
-        ProcessEspAndLogging()
+        local espOk, espErr = pcall(ProcessEspAndLogging)
+        if not espOk and now - VisualRuntime.LastParryEspErrorAt >= 5 then
+            VisualRuntime.LastParryEspErrorAt = now
+            warn("[Auto Parry ESP] Recovered from: " .. tostring(espErr))
+        end
     end
 end
 
@@ -4571,8 +4726,7 @@ RunService.RenderStepped:Connect(function(deltaTime)
 
     if not baseVisualsEnabled then
         if VisualRuntime.BaseVisualsWereEnabled then
-            updateEspTracers()
-            updateHealth()
+            VisualRuntime.RunBaseVisuals()
         end
 
         VisualRuntime.BaseVisualsWereEnabled = false
@@ -4595,8 +4749,7 @@ RunService.RenderStepped:Connect(function(deltaTime)
     end
 
     VisualRuntime.Accumulator %= VisualRuntime.UpdateInterval
-    updateEspTracers()
-    updateHealth()
+    VisualRuntime.RunBaseVisuals()
 end)
 
 print("Free Fortnite Cheats TM | Wabi tabs safe-fallback build loaded")
