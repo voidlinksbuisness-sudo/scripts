@@ -1,4 +1,4 @@
--- FFTM_MAIN_BUILD = "2026-08-29-ALI-ESP-STABILITY-1"
+-- FFTM_MAIN_BUILD = "2026-08-29-ESP-SMOOTH-RECOVERY-1"
 --// INS UI
 local Library = {
     Raw = loadstring(game:HttpGet(
@@ -208,7 +208,7 @@ local Camera = workspace.CurrentCamera
 --==================================================
 -- FFTM REMOTE SESSION CONTROL
 --==================================================
-FFTM_MAIN_VERSION = "2026-08-29-ALI-ESP-STABILITY-1"
+FFTM_MAIN_VERSION = "2026-08-29-ESP-SMOOTH-RECOVERY-1"
 FFTM_API_URL = "https://fftm-parry-api.voidlinksbuisness.workers.dev"
 FFTM_RUNNING = true
 FFTM_LAST_HEARTBEAT_AT = -1000000
@@ -430,6 +430,9 @@ local VisualRuntime = {
     PlayerSetChanged = false,
     LastVisualErrorAt = -1000000,
     LastParryEspErrorAt = -1000000,
+    RefreshRequested = false,
+    EspFrame = {},
+    HealthFrame = {},
 }
 
 function VisualRuntime.RefreshPlayers()
@@ -471,15 +474,8 @@ end
 VisualRuntime.RefreshPlayers()
 
 function VisualRuntime.IsPlayerActive(player)
-    if player == LocalPlayer then
-        return true
-    end
-
-    local ok, parent = pcall(function()
-        return player and player.Parent
-    end)
-
-    return ok and parent == Players
+    return player == LocalPlayer
+        or (player ~= nil and player.Parent == Players)
 end
 
 local function getCharacterData(player)
@@ -686,6 +682,95 @@ function VisualRuntime.HideAllBaseDrawings()
     hidePoolFrom(healthTexts, 1)
 end
 
+function VisualRuntime.ReportPlayerVisualError(player, err)
+    VisualRuntime.CharacterCache[player] = nil
+    VisualRuntime.RefreshRequested = true
+
+    local now = os.clock()
+    if now - VisualRuntime.LastVisualErrorAt >= 5 then
+        VisualRuntime.LastVisualErrorAt = now
+        warn("[FFTM Visuals] Skipped one stale player: " .. tostring(err))
+    end
+end
+
+function VisualRuntime.HideEspSlot(index)
+    local box = espBoxes[index]
+    local line = tracerLines[index]
+
+    pcall(function()
+        if box then box.Visible = false end
+        if line then line.Visible = false end
+    end)
+end
+
+function VisualRuntime.UpdateEspPlayer(player, index)
+    local frame = VisualRuntime.EspFrame
+    local box = espBoxes[index]
+    local line = tracerLines[index]
+    local showBox = false
+    local showLine = false
+    local root = getRoot(player)
+
+    if root then
+        local pos = root.Position
+        local dx = pos.X - frame.ReferencePos.X
+        local dy = pos.Y - frame.ReferencePos.Y
+        local dz = pos.Z - frame.ReferencePos.Z
+        local distanceSquared = dx * dx + dy * dy + dz * dz
+
+        if distanceSquared <= frame.MaxDistanceSquared
+            and not nearSelf(pos, frame.MyPos) then
+
+            local screenPos, onScreen = WorldToScreen(pos)
+
+            if onScreen
+                and screenPos.X >= 0
+                and screenPos.X <= frame.Viewport.X
+                and screenPos.Y >= 0
+                and screenPos.Y <= frame.Viewport.Y then
+
+                if state.ESP then
+                    box = box or getEspBox(index)
+                    local camDx = pos.X - frame.CameraPos.X
+                    local camDy = pos.Y - frame.CameraPos.Y
+                    local camDz = pos.Z - frame.CameraPos.Z
+                    local distance = math.sqrt(
+                        camDx * camDx + camDy * camDy + camDz * camDz
+                    )
+                    local scale = math.clamp(
+                        1500 / math.max(distance, 0.001),
+                        8,
+                        400
+                    )
+                    local size = Vector2.new(scale, scale * 1.5)
+
+                    box.Size = size
+                    box.Position = Vector2.new(
+                        screenPos.X - size.X * 0.5,
+                        screenPos.Y - size.Y * 0.5
+                    )
+                    showBox = true
+                end
+
+                if state.Tracers then
+                    line = line or getTracer(index)
+                    line.From = frame.Origin
+                    line.To = screenPos
+                    line.Transparency = frame.TracerTransparency
+                    showLine = frame.TracerTransparency > 0
+                end
+            end
+        end
+    end
+
+    if box and box.Visible ~= showBox then
+        box.Visible = showBox
+    end
+    if line and line.Visible ~= showLine then
+        line.Visible = showLine
+    end
+end
+
 --// ESP + TRACERS
 local function updateEspTracers()
     if not state.ESP and not state.Tracers then
@@ -707,15 +792,18 @@ local function updateEspTracers()
     end
 
     local viewport = Camera.ViewportSize
-    local origin = Vector2.new(viewport.X * 0.5, viewport.Y)
 
     local myRoot = getRoot(LocalPlayer)
     local myPos = myRoot and myRoot.Position
 
-    local camPos = Camera.CFrame.Position
-    local referencePos = myPos or camPos
-    local maxDistanceSquared = getEspMaxDistanceSquared()
-    local tracerTransparency = 1 - (state.TracerTransparency / 100)
+    local frame = VisualRuntime.EspFrame
+    frame.Viewport = viewport
+    frame.Origin = Vector2.new(viewport.X * 0.5, viewport.Y)
+    frame.MyPos = myPos
+    frame.CameraPos = Camera.CFrame.Position
+    frame.ReferencePos = myPos or frame.CameraPos
+    frame.MaxDistanceSquared = getEspMaxDistanceSquared()
+    frame.TracerTransparency = 1 - (state.TracerTransparency / 100)
     local count = 0
 
     for _, player in ipairs(VisualRuntime.Players) do
@@ -725,76 +813,10 @@ local function updateEspTracers()
 
         count += 1
 
-        local box = espBoxes[count]
-        local line = tracerLines[count]
-
-        local showBox = false
-        local showLine = false
-
-        local root = getRoot(player)
-
-        if root then
-            local pos = root.Position
-            local dx = pos.X - referencePos.X
-            local dy = pos.Y - referencePos.Y
-            local dz = pos.Z - referencePos.Z
-            local distanceSquared = dx * dx + dy * dy + dz * dz
-
-            if distanceSquared <= maxDistanceSquared
-                and not nearSelf(pos, myPos) then
-
-                local screenPos, onScreen = WorldToScreen(pos)
-
-                if onScreen
-                    and screenPos.X >= 0
-                    and screenPos.X <= viewport.X
-                    and screenPos.Y >= 0
-                    and screenPos.Y <= viewport.Y then
-
-                    --// ESP
-                    if state.ESP then
-                        box = box or getEspBox(count)
-                        local camDx = pos.X - camPos.X
-                        local camDy = pos.Y - camPos.Y
-                        local camDz = pos.Z - camPos.Z
-                        local distance = math.sqrt(
-                            camDx * camDx + camDy * camDy + camDz * camDz
-                        )
-                        local scale = math.clamp(
-                            1500 / math.max(distance, 0.001),
-                            8,
-                            400
-                        )
-                        local size = Vector2.new(scale, scale * 1.5)
-
-                        box.Size = size
-                        box.Position = Vector2.new(
-                            screenPos.X - size.X * 0.5,
-                            screenPos.Y - size.Y * 0.5
-                        )
-
-                        showBox = true
-                    end
-
-                    --// TRACERS
-                    if state.Tracers then
-                        line = line or getTracer(count)
-                        line.From = origin
-                        line.To = screenPos
-                        line.Transparency = tracerTransparency
-
-                        showLine = tracerTransparency > 0
-                    end
-                end
-            end
-        end
-
-        if box and box.Visible ~= showBox then
-            box.Visible = showBox
-        end
-
-        if line and line.Visible ~= showLine then
-            line.Visible = showLine
+        local ok, err = pcall(VisualRuntime.UpdateEspPlayer, player, count)
+        if not ok then
+            VisualRuntime.HideEspSlot(count)
+            VisualRuntime.ReportPlayerVisualError(player, err)
         end
     end
 
@@ -803,6 +825,55 @@ local function updateEspTracers()
 end
 
 --// HEALTH ESP
+function VisualRuntime.HideHealthSlot(index)
+    local text = healthTexts[index]
+    pcall(function()
+        if text then text.Visible = false end
+    end)
+end
+
+function VisualRuntime.UpdateHealthPlayer(player, index)
+    local frame = VisualRuntime.HealthFrame
+    local text = healthTexts[index]
+    local humanoid, root = getCharacterData(player)
+    local visible = false
+
+    if humanoid and root and humanoid.Health > 0 then
+        local position = root.Position
+        local dx = position.X - frame.MyPosition.X
+        local dy = position.Y - frame.MyPosition.Y
+        local dz = position.Z - frame.MyPosition.Z
+        local distanceSquared = dx * dx + dy * dy + dz * dz
+
+        if distanceSquared <= frame.MaxDistanceSquared then
+            local screenPosition, onScreen = WorldToScreen(
+                position + VisualRuntime.HealthHeadOffset
+            )
+
+            if onScreen
+                and screenPosition.X >= 0
+                and screenPosition.X <= frame.Viewport.X
+                and screenPosition.Y >= 0
+                and screenPosition.Y <= frame.Viewport.Y then
+
+                text = text or getHealthText(index)
+                text.Position = screenPosition
+
+                local health = math.floor(humanoid.Health)
+                if VisualRuntime.HealthTextValues[index] ~= health then
+                    VisualRuntime.HealthTextValues[index] = health
+                    text.Text = "+ " .. health
+                end
+                visible = true
+            end
+        end
+    end
+
+    if text and text.Visible ~= visible then
+        text.Visible = visible
+    end
+end
+
 local function updateHealth()
     Camera = workspace.CurrentCamera or Camera
 
@@ -866,61 +937,20 @@ local function updateHealth()
     end
 
     VisualRuntime.PlayerHealthWasActive = true
-    local myPosition = myRoot.Position
-    local maxDistanceSquared = getHealthMaxDistanceSquared()
+    local frame = VisualRuntime.HealthFrame
+    frame.Viewport = viewport
+    frame.MyPosition = myRoot.Position
+    frame.MaxDistanceSquared = getHealthMaxDistanceSquared()
     local count = 0
 
     for _, player in ipairs(VisualRuntime.Players) do
         if player ~= LocalPlayer then
             count += 1
 
-            local text = healthTexts[count]
-            local humanoid, root = getCharacterData(player)
-
-            local visible = false
-
-            if humanoid
-                and root
-                and humanoid.Health > 0 then
-
-                local position = root.Position
-
-                local dx = position.X - myPosition.X
-                local dy = position.Y - myPosition.Y
-                local dz = position.Z - myPosition.Z
-
-                local distanceSquared =
-                    dx * dx +
-                    dy * dy +
-                    dz * dz
-
-                if distanceSquared <= maxDistanceSquared then
-                    local screenPosition, onScreen = WorldToScreen(
-                        position + VisualRuntime.HealthHeadOffset
-                    )
-
-                    if onScreen
-                        and screenPosition.X >= 0
-                        and screenPosition.X <= viewport.X
-                        and screenPosition.Y >= 0
-                        and screenPosition.Y <= viewport.Y then
-
-                        text = text or getHealthText(count)
-                        text.Position = screenPosition
-
-                        local health = math.floor(humanoid.Health)
-                        if VisualRuntime.HealthTextValues[count] ~= health then
-                            VisualRuntime.HealthTextValues[count] = health
-                            text.Text = "+ " .. health
-                        end
-
-                        visible = true
-                    end
-                end
-            end
-
-            if text and text.Visible ~= visible then
-                text.Visible = visible
+            local ok, err = pcall(VisualRuntime.UpdateHealthPlayer, player, count)
+            if not ok then
+                VisualRuntime.HideHealthSlot(count)
+                VisualRuntime.ReportPlayerVisualError(player, err)
             end
         end
     end
@@ -4736,7 +4766,10 @@ RunService.RenderStepped:Connect(function(deltaTime)
     VisualRuntime.BaseVisualsWereEnabled = true
 
     local now = os.clock()
-    if now >= VisualRuntime.NextPlayerRefreshAt then
+    if VisualRuntime.RefreshRequested
+        or now >= VisualRuntime.NextPlayerRefreshAt then
+
+        VisualRuntime.RefreshRequested = false
         VisualRuntime.NextPlayerRefreshAt =
             now + VisualRuntime.PlayerRefreshInterval
         VisualRuntime.RefreshPlayers()
