@@ -1,4 +1,4 @@
--- FFTM_MAIN_BUILD = "2026-08-29-ESP-BOXING-M2-1"
+-- FFTM_MAIN_BUILD = "2026-08-29-CURSOR-MULTITARGET-1"
 --// INS UI
 local Library = {
     Raw = loadstring(game:HttpGet(
@@ -208,7 +208,7 @@ local Camera = workspace.CurrentCamera
 --==================================================
 -- FFTM REMOTE SESSION CONTROL
 --==================================================
-FFTM_MAIN_VERSION = "2026-08-29-ESP-BOXING-M2-1"
+FFTM_MAIN_VERSION = "2026-08-29-CURSOR-MULTITARGET-1"
 FFTM_API_URL = "https://fftm-parry-api.voidlinksbuisness.workers.dev"
 FFTM_RUNNING = true
 FFTM_LAST_HEARTBEAT_AT = -1000000
@@ -1620,7 +1620,7 @@ UIToggles.AutoTargetNearest = SafeAddToggle(TargetingTab, {
 UIToggles.MultipleTargets = SafeAddToggle(TargetingTab, {
     Id = "multiple_targets",
     Title = "Multiple Targets",
-    Description = "Lets automatic targeting select up to the three nearest valid characters.",
+    Description = "Lets automatic targeting select three characters and manual targeting add or remove up to three cursor-selected characters.",
     Default = true,
     Callback = function(value)
         MultiTarget.Set(value)
@@ -3531,6 +3531,17 @@ function CycleEvent(manualCycle)
     end
 
     local validCharacters = {}
+    local mouseLocation = nil
+
+    if manualCycle then
+        local mouseOk, currentMouseLocation = pcall(function()
+            return UIS:GetMouseLocation()
+        end)
+
+        if mouseOk then
+            mouseLocation = currentMouseLocation
+        end
+    end
 
     for _, char in ipairs(allCharacters) do
         if IsCharacterWhitelisted(char) then
@@ -3549,10 +3560,30 @@ function CycleEvent(manualCycle)
                 (localRoot.Position - targetRoot.Position).Magnitude
 
             if distance <= MaxCycleRange then
-                table.insert(validCharacters, {
+                local candidate = {
                     Character = char,
                     Distance = distance,
-                })
+                    OnScreen = false,
+                    CursorDistanceSquared = math.huge,
+                }
+
+                if mouseLocation then
+                    local projectionOk, screenPosition, onScreen = pcall(function()
+                        return WorldToScreen(targetRoot.Position)
+                    end)
+
+                    if projectionOk and onScreen and screenPosition then
+                        local cursorOffsetX = screenPosition.X - mouseLocation.X
+                        local cursorOffsetY = screenPosition.Y - mouseLocation.Y
+
+                        candidate.OnScreen = true
+                        candidate.CursorDistanceSquared =
+                            cursorOffsetX * cursorOffsetX
+                            + cursorOffsetY * cursorOffsetY
+                    end
+                end
+
+                table.insert(validCharacters, candidate)
             end
         end
     end
@@ -3574,34 +3605,88 @@ function CycleEvent(manualCycle)
         return
     end
 
-    table.sort(validCharacters, function(a, b)
-        return a.Distance < b.Distance
-    end)
-
-    -- Manual X selection is intentionally independent of Auto Target
-    -- and Multiple Targets. Every X press advances exactly one target.
     if manualCycle then
-        CurrentIndex = (CurrentIndex % #validCharacters) + 1
+        table.sort(validCharacters, function(a, b)
+            if a.OnScreen ~= b.OnScreen then
+                return a.OnScreen
+            end
+
+            if a.OnScreen
+                and a.CursorDistanceSquared ~= b.CursorDistanceSquared then
+
+                return a.CursorDistanceSquared < b.CursorDistanceSquared
+            end
+
+            return a.Distance < b.Distance
+        end)
+
+        CurrentIndex = 1
 
         local selectedCharacter =
-            validCharacters[CurrentIndex].Character
+            validCharacters[1].Character
 
-        UpdateTargetCharacters({ selectedCharacter })
+        if MultiTarget.Get() then
+            local selectedCharacters = {}
+            local selectedIndex = nil
 
-        Notify(
-            "Target",
-            "Selected "
-                .. GetCharacterDisplayName(selectedCharacter)
-                .. " ["
-                .. tostring(CurrentIndex)
-                .. "/"
-                .. tostring(#validCharacters)
-                .. "]",
-            2
-        )
+            for _, character in ipairs(TargetCharacters) do
+                local stillValid = false
+
+                for _, candidate in ipairs(validCharacters) do
+                    if candidate.Character == character then
+                        stillValid = true
+                        break
+                    end
+                end
+
+                if stillValid then
+                    selectedCharacters[#selectedCharacters + 1] = character
+
+                    if character == selectedCharacter then
+                        selectedIndex = #selectedCharacters
+                    end
+                end
+            end
+
+            if selectedIndex then
+                table.remove(selectedCharacters, selectedIndex)
+            else
+                selectedCharacters[#selectedCharacters + 1] = selectedCharacter
+
+                if #selectedCharacters > 3 then
+                    table.remove(selectedCharacters, 1)
+                end
+            end
+
+            UpdateTargetCharacters(selectedCharacters)
+
+            Notify(
+                "Target",
+                (selectedIndex and "Removed " or "Selected ")
+                    .. GetCharacterDisplayName(selectedCharacter)
+                    .. " ["
+                    .. tostring(#selectedCharacters)
+                    .. "/3]",
+                2
+            )
+        else
+            UpdateTargetCharacters({ selectedCharacter })
+
+            Notify(
+                "Target",
+                "Selected "
+                    .. GetCharacterDisplayName(selectedCharacter)
+                    .. " [nearest cursor]",
+                2
+            )
+        end
 
         return
     end
+
+    table.sort(validCharacters, function(a, b)
+        return a.Distance < b.Distance
+    end)
 
     -- Automatic targeting keeps the existing behavior.
     if MultiTarget.Get() then
@@ -3862,7 +3947,7 @@ RegisterActionKeybind(
 
 RegisterActionKeybind(
     "cycle_target",
-    "Cycle Target",
+    "Select Cursor Target",
     nil,
     TriggerManualCycle
 )
@@ -3956,7 +4041,7 @@ local function AddKeybindControl(spec)
         Description = spec.Id == "menu_toggle"
             and "Key used to minimize or restore the menu. Press Delete to clear it."
             or spec.Id == "cycle_target"
-            and "Key used to select the next in-range target. Press Delete to clear it."
+            and "Selects the in-range character nearest your cursor. Multiple Targets adds or removes that character. Press Delete to clear it."
             or "Pressing this key toggles the matching feature. Press Delete to clear it.",
         Default = spec.KeyName,
         Mode = "Toggle",
@@ -4546,8 +4631,8 @@ SetupPresetConfigUI()
 
 function SetupTargetFolderUI()
     SafeAddButton(TargetingTab, {
-        Title = "Cycle Target Now",
-        Description = "Manually selects the next valid target within Max Cycle Range.",
+        Title = "Select Cursor Target Now",
+        Description = "Selects the in-range character nearest your cursor; Multiple Targets adds or removes that character.",
 
         Callback = function()
             print("[Target] UI cycle button pressed")
