@@ -1,4 +1,4 @@
--- FFTM_MAIN_BUILD = "2026-08-29-ORGANIZED-UI-1"
+-- FFTM_MAIN_BUILD = "2026-08-29-SCROLL-READABILITY-FIX-1"
 --// INS UI
 local Library = {}
 
@@ -35,6 +35,34 @@ Library.ScrollPatchCount = nil
 
 Library.Themes = Library.Raw:ThemePresets()
 
+function Library:HandleWheel(amount)
+    amount = tonumber(amount) or 0
+    if amount == 0 then
+        return
+    end
+
+    local now = os.clock()
+    if now - (self.LastWheelAt or -1000000) < 0.01
+        and amount == self.LastWheelAmount then
+        return
+    end
+
+    self.LastWheelAt = now
+    self.LastWheelAmount = amount
+    self.Raw:ScrollActive(amount)
+end
+
+function Library:ReadWheelInput(input)
+    local ok, isWheel, delta = pcall(function()
+        return input.UserInputType == Enum.UserInputType.MouseWheel,
+            input.Position.Z
+    end)
+
+    if ok and isWheel then
+        self:HandleWheel(-(tonumber(delta) or 0) * 72)
+    end
+end
+
 function Library:AdaptRow(row)
     row.SetValue = row.Set
     row.SetState = row.Set
@@ -49,7 +77,7 @@ function Library:CreateWindow(config)
         size = Vector2.new(760, 560),
         menuKey = "none",
         theme = "Waifu",
-        opacity = 0.94,
+        opacity = 1,
         rounding = 1,
         rowLines = true,
         checkboxStyle = false,
@@ -212,7 +240,7 @@ local Window = Library:CreateWindow({
 
 Library.Raw:SetBackgroundImage(
     "https://raw.githubusercontent.com/voidlinksbuisness-sudo/scripts/748e48118250bda21774d36a941578a2eba08eb3/assets/fftm-ui-background.png",
-    0.38,
+    0.14,
     1,
     1
 )
@@ -229,25 +257,52 @@ local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local UIS = game:GetService("UserInputService")
 local SelectedFolder = nil
-
--- INS's pinned build supports dragging and keyboard scrolling but does not
--- consume Roblox mouse-wheel input. Forward wheel steps to the active tab.
-pcall(function()
-    UIS.InputChanged:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.MouseWheel then
-            local position = input.Position
-            Library.Raw:ScrollActive(-((position and position.Z) or 0) * 72)
-        end
-    end)
-end)
-
 local LocalPlayer = Players.LocalPlayer
 local Camera = workspace.CurrentCamera
+
+-- INS's pinned build supports dragging and keyboard scrolling but does not
+-- consume mouse-wheel input. Matcha exposes different signals across builds,
+-- so support both UIS and PlayerMouse and deduplicate double-fired notches.
+pcall(function()
+    local signal = UIS.InputChanged
+    if signal and type(signal.Connect) == "function" then
+        signal:Connect(function(input)
+            Library:ReadWheelInput(input)
+        end)
+    end
+end)
+
+pcall(function()
+    local signal = UIS.InputBegan
+    if signal and type(signal.Connect) == "function" then
+        signal:Connect(function(input)
+            Library:ReadWheelInput(input)
+        end)
+    end
+end)
+
+pcall(function()
+    local mouse = LocalPlayer:GetMouse()
+    local forward = mouse.WheelForward
+    local backward = mouse.WheelBackward
+
+    if forward and type(forward.Connect) == "function" then
+        forward:Connect(function()
+            Library:HandleWheel(-72)
+        end)
+    end
+
+    if backward and type(backward.Connect) == "function" then
+        backward:Connect(function()
+            Library:HandleWheel(72)
+        end)
+    end
+end)
 
 --==================================================
 -- FFTM REMOTE SESSION CONTROL
 --==================================================
-FFTM_MAIN_VERSION = "2026-08-29-ORGANIZED-UI-1"
+FFTM_MAIN_VERSION = "2026-08-29-SCROLL-READABILITY-FIX-1"
 FFTM_API_URL = "https://fftm-parry-api.voidlinksbuisness.workers.dev"
 FFTM_RUNNING = true
 FFTM_LAST_HEARTBEAT_AT = -1000000
