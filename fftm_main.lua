@@ -1,4 +1,4 @@
--- FFTM_MAIN_BUILD = "2026-08-29-CONFIG-KEYBIND-GUARD-1"
+-- FFTM_MAIN_BUILD = "2026-08-29-CONFIG-ESP-FOLLOWUP-1"
 --// INS UI
 local Library = {
     Raw = loadstring(game:HttpGet(
@@ -103,6 +103,9 @@ function Library:CreateWindow(config)
                 control.Title,
                 control.Default or "none",
                 function(value)
+                    -- Native INS config callbacks are value restoration, not
+                    -- hotkey presses. Reconcile them after the load completes.
+                    if Library.LoadingNativeConfig then return end
                     if type(value) == "boolean" then
                         if value or row.Mode == "Toggle" then
                             control.Callback()
@@ -208,7 +211,7 @@ local Camera = workspace.CurrentCamera
 --==================================================
 -- FFTM REMOTE SESSION CONTROL
 --==================================================
-FFTM_MAIN_VERSION = "2026-08-29-CONFIG-KEYBIND-GUARD-1"
+FFTM_MAIN_VERSION = "2026-08-29-CONFIG-ESP-FOLLOWUP-1"
 FFTM_API_URL = "https://fftm-parry-api.voidlinksbuisness.workers.dev"
 FFTM_RUNNING = true
 FFTM_LAST_HEARTBEAT_AT = -1000000
@@ -431,9 +434,9 @@ local VisualRuntime = {
     LastVisualErrorAt = -1000000,
     LastParryEspErrorAt = -1000000,
     AnimationIdEspEnabled = true,
-    RefreshRequested = false,
     EspFrame = {},
     HealthFrame = {},
+    FrameId = 0,
 }
 
 function VisualRuntime.RefreshPlayers()
@@ -504,22 +507,18 @@ local function getCharacterData(player)
 
     local data = VisualRuntime.CharacterCache[player]
 
-    if not data or data.Character ~= character then
-        data = {
-            Character = character,
-            Humanoid = character:FindFirstChildOfClass("Humanoid"),
-            Root = character:FindFirstChild("HumanoidRootPart"),
-        }
-
+    if not data then
+        data = {}
         VisualRuntime.CharacterCache[player] = data
-    else
-        if not data.Humanoid or data.Humanoid.Parent ~= character then
-            data.Humanoid = character:FindFirstChildOfClass("Humanoid")
-        end
+    end
 
-        if not data.Root or data.Root.Parent ~= character then
-            data.Root = character:FindFirstChild("HumanoidRootPart")
-        end
+    if data.Character ~= character or data.FrameId ~= VisualRuntime.FrameId then
+        -- Reacquire live parts each visual frame. A cached proxy can still
+        -- report the old Parent during respawn/streaming transitions.
+        data.Character = character
+        data.Humanoid = character:FindFirstChildOfClass("Humanoid")
+        data.Root = character:FindFirstChild("HumanoidRootPart")
+        data.FrameId = VisualRuntime.FrameId
     end
 
     return data.Humanoid, data.Root
@@ -738,7 +737,8 @@ end
 
 function VisualRuntime.ReportPlayerVisualError(player, err)
     VisualRuntime.CharacterCache[player] = nil
-    VisualRuntime.RefreshRequested = true
+    -- Rebuild this player's parts on the next visual frame. Keep full roster
+    -- scans on their own timer even if one player fails repeatedly.
 
     local now = os.clock()
     if now - VisualRuntime.LastVisualErrorAt >= 5 then
@@ -1034,6 +1034,7 @@ function VisualRuntime.UpdateBaseVisuals()
 end
 
 function VisualRuntime.RunBaseVisuals()
+    VisualRuntime.FrameId += 1
     local ok, err = pcall(VisualRuntime.UpdateBaseVisuals)
     if ok then
         return true
@@ -4145,7 +4146,7 @@ local function SetKeybind(spec, value, preserveIfUnbound)
         value = nil
     end
 
-    -- Only config loading protects essential shortcuts. Manual clearing
+    -- Only config loading protects shortcuts. Manual clearing
     -- through the Keybinds page must still work normally.
     if preserveIfUnbound and value == nil then
         return false
@@ -4217,6 +4218,12 @@ local function CaptureKeybindConfig()
     local config = {}
 
     for _, spec in ipairs(KeybindSpecs) do
+        local control = KeybindControls[spec.Id]
+        if control and type(control.GetValue) == "function" then
+            -- Native INS loads can assign the row after its callback fires.
+            -- Save the actual displayed/live binding, not a stale mirror.
+            SetKeybind(spec, control:GetValue())
+        end
         config[spec.Id] = spec.KeyName or "None"
     end
 
@@ -4237,7 +4244,7 @@ local function ApplyKeybindConfig(config)
         if spec and type(value) == "string" and SetKeybind(
             spec,
             value,
-            resolvedId == "menu_toggle" or resolvedId == "cycle_target"
+            true
         ) then
             local control = KeybindControls[resolvedId]
             if control and type(control.SetValue) == "function" then
@@ -4248,6 +4255,38 @@ local function ApplyKeybindConfig(config)
         end
     end
 end
+
+-- INS also has its own profile/autoload entry point. Protect that path as
+-- well as FFTM's Load button; empty bindings must not erase any live shortcut.
+function Library:ProtectNativeConfigKeybinds()
+    if self.NativeLoadConfig or type(self.Raw.LoadConfig) ~= "function" then
+        return
+    end
+
+    self.NativeLoadConfig = self.Raw.LoadConfig
+    self.Raw.LoadConfig = function(raw, ...)
+        local previous = CaptureKeybindConfig()
+        Library.LoadingNativeConfig = true
+        local ok, result = pcall(Library.NativeLoadConfig, raw, ...)
+        Library.LoadingNativeConfig = false
+
+        for id, control in pairs(KeybindControls) do
+            local spec = KeybindSpecsById[id]
+            local value = control:GetValue()
+            if not ok or not SetKeybind(spec, value, true) then
+                SetKeybind(spec, previous[id])
+            end
+            -- INS may restore its attached-bind data after the row callback.
+            -- Re-sync both the live row and our save-state after that finishes.
+            control:SetValue(spec.KeyName, "Toggle")
+        end
+
+        if not ok then error(result, 0) end
+        return result
+    end
+end
+
+Library:ProtectNativeConfigKeybinds()
 
 function SetupPresetConfigUI()
     --==================================================
@@ -4717,7 +4756,7 @@ function SetupPresetConfigUI()
 
     SafeAddButton(ConfigTab, {
         Title = "Load",
-        Description = "Loads the selected preset. Blank menu and targeting keybinds keep your current keys.",
+        Description = "Loads the selected preset. Blank keybind entries keep all your current shortcuts; clear binds manually on the Keybinds page.",
 
         Callback = function()
             -- Re-read the disk copy first. This makes Load use the persisted
@@ -5036,16 +5075,10 @@ VisualRuntime.BaseVisualsWereEnabled = false
 VisualRuntime.PlayerRefreshInterval = 1
 VisualRuntime.NextPlayerRefreshAt = 0
 
-RunService.RenderStepped:Connect(function(deltaTime)
+function VisualRuntime.StepBaseVisuals(deltaTime)
     if not FFTM_RUNNING then
         return
     end
-
-    VisualRuntime.PositionAutoParryStatus()
-
-    -- Target selection markers retain their existing render-rate behavior.
-    -- They are separate from the base ESP/health visual pipeline.
-    UpdateSelectedMarkers()
 
     local baseVisualsEnabled =
         state.ESP
@@ -5062,13 +5095,15 @@ RunService.RenderStepped:Connect(function(deltaTime)
         return
     end
 
+    if not VisualRuntime.BaseVisualsWereEnabled then
+        VisualRuntime.NextPlayerRefreshAt = 0
+        VisualRuntime.Accumulator = VisualRuntime.UpdateInterval
+    end
     VisualRuntime.BaseVisualsWereEnabled = true
 
     local now = os.clock()
-    if VisualRuntime.RefreshRequested
-        or now >= VisualRuntime.NextPlayerRefreshAt then
+    if now >= VisualRuntime.NextPlayerRefreshAt then
 
-        VisualRuntime.RefreshRequested = false
         VisualRuntime.NextPlayerRefreshAt =
             now + VisualRuntime.PlayerRefreshInterval
         VisualRuntime.RefreshPlayers()
@@ -5082,6 +5117,24 @@ RunService.RenderStepped:Connect(function(deltaTime)
 
     VisualRuntime.Accumulator %= VisualRuntime.UpdateInterval
     VisualRuntime.RunBaseVisuals()
+end
+
+RunService.RenderStepped:Connect(function(deltaTime)
+    -- Guard the entire frame, including enumeration/timers. Failures before
+    -- RunBaseVisuals used to leave the last drawn frame frozen on screen.
+    local ok, err = pcall(VisualRuntime.StepBaseVisuals, deltaTime)
+    if not ok then
+        VisualRuntime.ResetBaseDrawingPools()
+        VisualRuntime.HideAllBaseDrawings()
+        VisualRuntime.LastFrameError = tostring(err)
+    end
+end)
+
+RunService.RenderStepped:Connect(function()
+    if not FFTM_RUNNING then return end
+    -- Optional status/selection Drawing failures cannot stop base ESP.
+    pcall(VisualRuntime.PositionAutoParryStatus)
+    pcall(UpdateSelectedMarkers)
 end)
 
 print("Free Fortnite Cheats TM | Wabi tabs safe-fallback build loaded")

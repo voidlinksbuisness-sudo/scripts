@@ -1,4 +1,4 @@
--- ESP_BUILD = "2026-08-29-ESP-RECOVERY-2"
+-- ESP_BUILD = "2026-08-29-CONFIG-ESP-FOLLOWUP-1"
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
@@ -282,15 +282,16 @@ local drawingsByPlayer = {}
 local lastPlayerErrorAt = -1000000
 
 local function addPlayer(player)
-	if player == LocalPlayer or characterCache[player] then
+	if player == LocalPlayer then
 		return
 	end
 
-	playersCache[#playersCache + 1] = player
-	characterCache[player] = {
-		Character = nil,
-		Root = nil,
-	}
+	-- Cache invalidation is not player removal. Never append a duplicate when
+	-- an error cleared character data between roster reconciliations.
+	if not table.find(playersCache, player) then
+		playersCache[#playersCache + 1] = player
+	end
+	characterCache[player] = characterCache[player] or {}
 end
 
 local function removeDrawing(drawing)
@@ -336,7 +337,8 @@ end
 local function refreshCharacter(player)
 	local data = characterCache[player]
 	if not data then
-		return false
+		data = {}
+		characterCache[player] = data
 	end
 
 	if player.Parent ~= Players then
@@ -347,12 +349,8 @@ local function refreshCharacter(player)
 
 	local character = player.Character
 
-	if data.Character ~= character then
-		data.Character = character
-		data.Root = character and character:FindFirstChild("HumanoidRootPart") or nil
-	elseif character and (not data.Root or data.Root.Parent ~= character) then
-		data.Root = character:FindFirstChild("HumanoidRootPart")
-	end
+	data.Character = character
+	data.Root = character and character:FindFirstChild("HumanoidRootPart") or nil
 
 	return true
 end
