@@ -1,4 +1,4 @@
--- FFTM_MAIN_BUILD = "2026-08-30-NONPARRY-PERF-1"
+-- FFTM_MAIN_BUILD = "2026-08-30-TOGGLE-NOTIFICATIONS-1"
 --// INS UI
 local Library = {
     Raw = loadstring(game:HttpGet(
@@ -46,7 +46,10 @@ function Library:CreateWindow(config)
             return Library:AdaptRow(self.Section:Toggle(
                 control.Title,
                 control.Default,
-                control.Callback,
+                function(value)
+                    control.Callback(value)
+                    Library:NotifyToggleState(control.Title, value)
+                end,
                 control.Description
             ))
         end
@@ -164,8 +167,27 @@ function Library:Notify(config)
     self.Raw:Notify(
         tostring(config.Title or "Notice"),
         tostring(config.Content or ""),
-        config.Duration or 4
+        config.Duration or 4,
+        config.Kind
     )
+end
+
+function Library:NotifyToggleState(title, enabled)
+    if type(enabled) ~= "boolean"
+        or self.LoadingNativeConfig
+        or self.SuppressToggleNotifications then
+
+        return false
+    end
+
+    self:Notify({
+        Title = "Feature changed",
+        Content = tostring(title or "Feature")
+            .. (enabled and " is enabled." or " is disabled."),
+        Duration = 2.5,
+        Kind = enabled and "success" or "warning",
+    })
+    return true
 end
 
 function Library:Minimize()
@@ -211,7 +233,7 @@ local Camera = workspace.CurrentCamera
 --==================================================
 -- FFTM REMOTE SESSION CONTROL
 --==================================================
-FFTM_MAIN_VERSION = "2026-08-30-NONPARRY-PERF-1"
+FFTM_MAIN_VERSION = "2026-08-30-TOGGLE-NOTIFICATIONS-1"
 FFTM_API_URL = "https://fftm-parry-api.voidlinksbuisness.workers.dev"
 FFTM_RUNNING = true
 FFTM_LAST_HEARTBEAT_AT = -1000000
@@ -4240,7 +4262,9 @@ local function AddKeybindControl(spec)
             else
                 local newValue = not spec.Get()
                 spec.Set(newValue)
-                SyncUIToggle(spec.ToggleName, newValue)
+                if not SyncUIToggle(spec.ToggleName, newValue) then
+                    Library:NotifyToggleState(spec.Title, newValue)
+                end
             end
         end,
 
@@ -4622,7 +4646,10 @@ function SetupPresetConfigUI()
         end
 
         setter(value)
+        local wasSuppressed = Library.SuppressToggleNotifications
+        Library.SuppressToggleNotifications = true
         SyncUIToggle(toggleName, value)
+        Library.SuppressToggleNotifications = wasSuppressed
     end
 
     local function ApplyConfig(config)
