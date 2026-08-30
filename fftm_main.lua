@@ -1,4 +1,4 @@
--- FFTM_MAIN_BUILD = "2026-08-30-BACKGROUND-COVER-1"
+-- FFTM_MAIN_BUILD = "2026-08-30-BACKGROUND-COVER-CLEANUP-1"
 --// INS UI
 local Library = {
     Raw = (function()
@@ -16,6 +16,21 @@ local Library = {
       local CropNow = os.clock()
 
       if State.BackdropCover and State.BackdropCropKey ~= CropKey then
+        if State.BackdropCropActiveKey
+          and State.Backdrop ~= State.BackdropFallback then
+
+          local PreviousCrop = State.Backdrop
+          HidePicture(PreviousCrop)
+
+          if PreviousCrop and PreviousCrop.Image then
+            PreviousCrop.Image:Remove()
+            PreviousCrop.Image = nil
+          end
+        end
+
+        State.Backdrop = State.BackdropFallback or State.Backdrop
+        Backdrop = State.Backdrop
+        State.BackdropCropActiveKey = nil
         State.BackdropCropKey = CropKey
         State.BackdropCropRequestedKey = nil
         State.BackdropCropPending = nil
@@ -41,9 +56,11 @@ local Library = {
         and State.BackdropCropPending
         and State.BackdropCropPending.Image then
 
+        HidePicture(State.BackdropFallback)
         State.Backdrop = State.BackdropCropPending
         State.BackdropCropActiveKey = CropKey
         State.BackdropCropPending = nil
+        State.BackdropCropPendingKey = nil
         Backdrop = State.Backdrop
       end
 
@@ -71,6 +88,25 @@ local Library = {
         )
 
         local backgroundSetter = [=[function InsUi:SetBackgroundImage(source, alpha, widthFraction, heightFraction)
+  local PreviousBackdrop = State.Backdrop
+  local PreviousFallback = State.BackdropFallback
+  HidePicture(PreviousBackdrop)
+  HidePicture(PreviousFallback)
+  HidePicture(State.BackdropCropPending)
+
+  if PreviousBackdrop and PreviousBackdrop.Image then
+    PreviousBackdrop.Image:Remove()
+    PreviousBackdrop.Image = nil
+  end
+
+  if PreviousFallback ~= PreviousBackdrop
+    and PreviousFallback
+    and PreviousFallback.Image then
+
+    PreviousFallback.Image:Remove()
+    PreviousFallback.Image = nil
+  end
+
   State.Backdrop = LoadPicture(source, "bg")
   State.BackdropFallback = State.Backdrop
   State.BackdropSource = source
@@ -349,7 +385,7 @@ local Camera = workspace.CurrentCamera
 --==================================================
 -- FFTM REMOTE SESSION CONTROL
 --==================================================
-FFTM_MAIN_VERSION = "2026-08-30-BACKGROUND-COVER-1"
+FFTM_MAIN_VERSION = "2026-08-30-BACKGROUND-COVER-CLEANUP-1"
 FFTM_API_URL = "https://fftm-parry-api.voidlinksbuisness.workers.dev"
 FFTM_RUNNING = true
 FFTM_LAST_HEARTBEAT_AT = -1000000
