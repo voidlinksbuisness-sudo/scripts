@@ -1,4 +1,4 @@
--- ESP_BUILD = "2026-08-29-CONFIG-ESP-FOLLOWUP-1"
+-- ESP_BUILD = "2026-08-30-NONPARRY-PERF-1"
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
@@ -349,8 +349,15 @@ local function refreshCharacter(player)
 
 	local character = player.Character
 
-	data.Character = character
-	data.Root = character and character:FindFirstChild("HumanoidRootPart") or nil
+	local now = os.clock()
+	if data.Character ~= character
+		or data.Root == nil
+		or now >= (data.NextPartRefreshAt or 0) then
+
+		data.Character = character
+		data.Root = character and character:FindFirstChild("HumanoidRootPart") or nil
+		data.NextPartRefreshAt = now + 0.25
+	end
 
 	return true
 end
@@ -383,6 +390,14 @@ local function reconcilePlayers()
 		if not activePlayers[player] then
 			removePlayer(player)
 		end
+	end
+
+	if _G.ESPAdaptiveUpdate ~= false then
+		local loadFactor = 1 + math.max(0, #playersCache - 8) / 16
+		UPDATE_INTERVAL = 1 / math.max(
+			math.min(12, UPDATE_RATE),
+			UPDATE_RATE / loadFactor
+		)
 	end
 
 	return true
