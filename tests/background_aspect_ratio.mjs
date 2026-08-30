@@ -16,13 +16,24 @@ function longString(value) {
   }
 }
 
-const pattern = 'local Wide = State%.BackdropWide and State%.BackdropWide %* State%.W or PaneHeight %* 0%.6%s+local Tall = State%.BackdropWide and %(State%.BackdropTall or 1%) %* PaneHeight or PaneHeight';
-const replacement = 'local Tall = (State.BackdropTall or 1) * PaneHeight\\n      local Wide = State.BackdropWide and State.BackdropWide * Tall or Tall * 0.6\\n      if State.BackdropWide and Wide > State.W then\\n        Wide = State.W\\n        Tall = Wide / State.BackdropWide\\n      end';
+function extractLongString(name) {
+  const match = main.match(new RegExp(`local ${name} = \\[=\\[([\\s\\S]*?)\\]=\\]`));
+  if (!match) throw new Error(`Missing ${name} patch source`);
+  return match[1];
+}
+
+const layoutPattern = 'local Wide = State%.BackdropWide and State%.BackdropWide %* State%.W or PaneHeight %* 0%.6%s+local Tall = State%.BackdropWide and %(State%.BackdropTall or 1%) %* PaneHeight or PaneHeight';
+const setterPattern = 'function InsUi:SetBackgroundImage%(source, alpha, widthFraction, heightFraction%)%s+State%.Backdrop = LoadPicture%(source, "bg"%)%s+State%.BackdropAlpha = alpha or State%.BackdropAlpha%s+State%.BackdropWide = tonumber%(widthFraction%)%s+State%.BackdropTall = tonumber%(heightFraction%)%s+return self%s+end';
+const layoutReplacement = extractLongString('coverLayout');
+const setterReplacement = extractLongString('backgroundSetter');
 
 for (const required of [
   'Library.BackgroundAspectRatio = 1800 / 900',
   'aspectRatio = Library.BackgroundAspectRatio',
   'heightFraction = 1',
+  'FFTM_MAIN_BUILD = "2026-08-30-BACKGROUND-COVER-1"',
+  '&fit=cover&a=center&output=png',
+  'State.BackdropCropReadyAt = CropNow + 0.2',
   'Library.Raw:SetBackgroundImage(\\n    Library.BackgroundImageUrl,\\n    0.14\\n)',
 ]) {
   if (!main.includes(required.replaceAll('\\n', '\n'))) throw new Error(`Missing background aspect behavior: ${required}`);
@@ -30,13 +41,28 @@ for (const required of [
 
 const test = `
 local source = ${longString(ins)}
-local patched, replacements = string.gsub(source, ${JSON.stringify(pattern)}, ${JSON.stringify(replacement)}, 1)
-assert(replacements == 1, "pinned INS renderer patch must match exactly once")
+local layoutReplacement = ${longString(layoutReplacement)}
+local setterReplacement = ${longString(setterReplacement)}
+local patched, layoutReplacements = string.gsub(source, ${JSON.stringify(layoutPattern)}, function()
+    return layoutReplacement
+end, 1)
+local setterReplacements
+patched, setterReplacements = string.gsub(patched, ${JSON.stringify(setterPattern)}, function()
+    return setterReplacement
+end, 1)
+assert(layoutReplacements == 1, "pinned INS renderer patch must match exactly once")
+assert(setterReplacements == 1, "pinned INS background setter patch must match exactly once")
 assert(string.find(patched, "local Wide = State.BackdropWide and State.BackdropWide * Tall or Tall * 0.6", 1, true))
-assert(string.find(patched, "if State.BackdropWide and Wide > State.W then", 1, true))
+assert(string.find(patched, "State.BackdropCropActiveKey == CropKey", 1, true))
+assert(string.find(patched, "&fit=cover&a=center&output=png", 1, true))
+assert(string.find(patched, "State.BackdropFallback = State.Backdrop", 1, true))
 assert(not string.find(patched, "State.BackdropWide * State.W", 1, true))
 
-local function layout(windowWidth, paneHeight, aspectRatio, heightFraction)
+local function layout(windowWidth, paneHeight, aspectRatio, heightFraction, cropReady)
+    if cropReady then
+        return 0, windowWidth, paneHeight
+    end
+
     local tall = (heightFraction or 1) * paneHeight
     local wide = aspectRatio and aspectRatio * tall or tall * 0.6
     if aspectRatio and wide > windowWidth then
@@ -47,18 +73,19 @@ local function layout(windowWidth, paneHeight, aspectRatio, heightFraction)
 end
 
 for _, size in ipairs({{500, 400}, {700, 400}, {1200, 650}, {360, 650}}) do
-    local x, wide, tall = layout(size[1], size[2], 1800 / 900, 1)
-    assert(wide / tall == 2, "background must preserve its 2:1 aspect ratio")
-    assert(x == (size[1] - wide) / 2, "background must stay horizontally centered")
-    assert(wide <= size[1], "background must not overflow window width")
-    assert(tall <= size[2], "background must not overflow pane height")
+    local x, wide, tall = layout(size[1], size[2], 1800 / 900, 1, true)
+    assert(x == 0, "cropped background must start at the pane edge")
+    assert(wide == size[1], "cropped background must fill frame width")
+    assert(tall == size[2], "cropped background must fill frame height")
 end
 
-local _, narrowWide, narrowTall = layout(500, 400, 2, 1)
+local _, narrowWide, narrowTall = layout(500, 400, 2, 1, false)
 assert(narrowWide == 500 and narrowTall == 250, "narrow windows must constrain by width")
-local _, wideWindowWide, wideWindowTall = layout(1000, 400, 2, 1)
+local _, wideWindowWide, wideWindowTall = layout(1000, 400, 2, 1, false)
 assert(wideWindowWide == 800 and wideWindowTall == 400, "wide windows must use full height")
-print("PASS: contained 2:1 background layout and exact pinned INS patch")
+assert(string.find(layoutReplacement, "&w=", 1, true))
+assert(string.find(layoutReplacement, "&h=", 1, true))
+print("PASS: debounced centered cover crop, contained fallback, and exact pinned INS patches")
 `;
 
 const directory = mkdtempSync(join(tmpdir(), 'fftm-background-aspect-'));
