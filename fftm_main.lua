@@ -1,10 +1,49 @@
--- FFTM_MAIN_BUILD = "2026-08-30-TOGGLE-NOTIFICATIONS-1"
+-- FFTM_MAIN_BUILD = "2026-08-30-BACKGROUND-ASPECT-1"
 --// INS UI
 local Library = {
-    Raw = loadstring(game:HttpGet(
-        "https://raw.githubusercontent.com/neaxusxgod-png/INS-ui/506859d3787450b6296254b1bb05a9c6d77ebeb2/uilib.min.lua"
-    ))() or INSUI
+    Raw = (function()
+        local source = game:HttpGet(
+            "https://raw.githubusercontent.com/neaxusxgod-png/INS-ui/506859d3787450b6296254b1bb05a9c6d77ebeb2/uilib.min.lua"
+        )
+        if type(source) ~= "string" then return nil end
+
+        -- INS normally derives background width from window width, which
+        -- stretches the image during resize. Treat BackdropWide as a real
+        -- aspect ratio and derive width from the rendered image height.
+        local patched, replacements = string.gsub(
+            source,
+            "local Wide = State%.BackdropWide and State%.BackdropWide %* State%.W or PaneHeight %* 0%.6%s+local Tall = State%.BackdropWide and %(State%.BackdropTall or 1%) %* PaneHeight or PaneHeight",
+            "local Tall = (State.BackdropTall or 1) * PaneHeight\n      local Wide = State.BackdropWide and State.BackdropWide * Tall or Tall * 0.6",
+            1
+        )
+
+        if replacements ~= 1 then
+            warn("[UI] Could not apply background aspect-ratio patch.")
+            patched = source
+        end
+
+        return loadstring(patched)()
+    end)() or INSUI
 }
+
+Library.BackgroundImageUrl =
+    "https://raw.githubusercontent.com/voidlinksbuisness-sudo/scripts/748e48118250bda21774d36a941578a2eba08eb3/assets/fftm-ui-background.png"
+Library.BackgroundAspectRatio = 1800 / 900
+Library.RawBackgroundImageSetter = Library.Raw.SetBackgroundImage
+function Library.Raw:SetBackgroundImage(source, alpha, aspectRatio, heightFraction)
+    if source == Library.BackgroundImageUrl and aspectRatio == nil then
+        aspectRatio = Library.BackgroundAspectRatio
+        heightFraction = 1
+    end
+
+    return Library.RawBackgroundImageSetter(
+        self,
+        source,
+        alpha,
+        aspectRatio,
+        heightFraction
+    )
+end
 
 Library.Themes = Library.Raw:ThemePresets()
 
@@ -209,10 +248,8 @@ local Window = Library:CreateWindow({
 })
 
 Library.Raw:SetBackgroundImage(
-    "https://raw.githubusercontent.com/voidlinksbuisness-sudo/scripts/748e48118250bda21774d36a941578a2eba08eb3/assets/fftm-ui-background.png",
-    0.14,
-    1,
-    1
+    Library.BackgroundImageUrl,
+    0.14
 )
 
 Library.Raw:Category("VISUALS")
@@ -233,7 +270,7 @@ local Camera = workspace.CurrentCamera
 --==================================================
 -- FFTM REMOTE SESSION CONTROL
 --==================================================
-FFTM_MAIN_VERSION = "2026-08-30-TOGGLE-NOTIFICATIONS-1"
+FFTM_MAIN_VERSION = "2026-08-30-BACKGROUND-ASPECT-1"
 FFTM_API_URL = "https://fftm-parry-api.voidlinksbuisness.workers.dev"
 FFTM_RUNNING = true
 FFTM_LAST_HEARTBEAT_AT = -1000000
