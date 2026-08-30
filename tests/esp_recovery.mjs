@@ -40,10 +40,11 @@ function Players:GetPlayers()
 end
 local function character(x)
     local char = {}
+    char.RootLookups, char.HumanoidLookups = 0, 0
     char.Root = {Parent = char, Position = vector(x, 0, 0)}
     char.Humanoid = {Parent = char, Health = 100}
-    function char:FindFirstChild() return self.Root end
-    function char:FindFirstChildOfClass() return self.Humanoid end
+    function char:FindFirstChild() self.RootLookups += 1; return self.Root end
+    function char:FindFirstChildOfClass() self.HumanoidLookups += 1; return self.Humanoid end
     return char
 end
 local LocalPlayer = {Parent = Players, Character = character(0)}
@@ -72,13 +73,14 @@ local function frame()
 end
 state.ESP, state.Tracers, state.PlayerHealth = true, true, true
 frame()
+assert(VisualRuntime.EffectiveUpdateRate == 30)
 assert(espBoxes[1] and espBoxes[1].Visible, 'optional overlay errors must not stop ESP')
 assert(healthTexts[1].Visible)
 local previousX = espBoxes[1].Position.X
 local oldRoot = player.Character.Root
 player.Character.Root = {Parent = player.Character, Position = vector(20,0,0)}
 -- Old part still reports the same parent: a parent-only cache check misses it.
-frame()
+for _ = 1, 8 do frame() end
 assert(espBoxes[1].Position.X ~= previousX, 'must reacquire a replaced root on the next visual frame')
 assert(VisualRuntime.CharacterCache[player].Root ~= oldRoot)
 projectionFail = true
@@ -115,10 +117,27 @@ frame()
 state.ESP = true
 frame()
 assert(espBoxes[1].Visible, 're-enable should draw immediately')
+local rootLookups, humanoidLookups = player.Character.RootLookups, player.Character.HumanoidLookups
+for _ = 1, 120 do frame() end
+assert(player.Character.RootLookups - rootLookups <= 25, 'root lookup cache regressed to every visual frame')
+assert(player.Character.HumanoidLookups - humanoidLookups <= 25, 'humanoid lookup cache regressed to every visual frame')
+local originalPlayers = VisualRuntime.Players
+VisualRuntime.Players = table.create(25, player)
+VisualRuntime.RefreshUpdateInterval()
+assert(VisualRuntime.EffectiveUpdateRate == 15, '24 remote players should reduce base visuals to 15 Hz')
+VisualRuntime.Players = table.create(41, player)
+VisualRuntime.RefreshUpdateInterval()
+assert(VisualRuntime.EffectiveUpdateRate == 12, 'large servers should respect the 12 Hz floor')
+_G.FFTMAdaptiveVisuals = false
+VisualRuntime.RefreshUpdateInterval()
+assert(VisualRuntime.EffectiveUpdateRate == 30, 'adaptive scheduling must support an opt-out')
+_G.FFTMAdaptiveVisuals = nil
+VisualRuntime.Players = originalPlayers
 end
 
 do
 local state = {ESP = true, Tracers = true, TracerTransparency = 0}
+local UPDATE_RATE, UPDATE_INTERVAL = 30, 1 / 30
 local function getEspMaxDistanceSquared() return 500 * 500 end
 ${extract(standalone, '--// PLAYER CACHE', '--// INPUT')}
 updateEspTracers()
@@ -131,6 +150,7 @@ reconcilePlayers()
 assert(#playersCache == 1, 'cache invalidation must not duplicate roster entries')
 local previousX = drawingsByPlayer[player].Box.Position.X
 player.Character.Root = {Parent = player.Character, Position = vector(30,0,0)}
+now += 0.25
 updateEspTracers()
 assert(drawingsByPlayer[player].Box.Position.X ~= previousX)
 Players.Fail = true
