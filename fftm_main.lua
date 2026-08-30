@@ -1,4 +1,4 @@
--- FFTM_MAIN_BUILD = "2026-08-29-CONFIG-ESP-FOLLOWUP-1"
+-- FFTM_MAIN_BUILD = "2026-08-30-NONPARRY-PERF-1"
 --// INS UI
 local Library = {
     Raw = loadstring(game:HttpGet(
@@ -211,7 +211,7 @@ local Camera = workspace.CurrentCamera
 --==================================================
 -- FFTM REMOTE SESSION CONTROL
 --==================================================
-FFTM_MAIN_VERSION = "2026-08-29-CONFIG-ESP-FOLLOWUP-1"
+FFTM_MAIN_VERSION = "2026-08-30-NONPARRY-PERF-1"
 FFTM_API_URL = "https://fftm-parry-api.voidlinksbuisness.workers.dev"
 FFTM_RUNNING = true
 FFTM_LAST_HEARTBEAT_AT = -1000000
@@ -329,6 +329,38 @@ function FFTMSendHeartbeat()
     if type(data) == "table" and data.shutdown == true then
         FFTMShutdown()
     end
+end
+
+function FFTMStartBackgroundPolling()
+    if FFTM_BACKGROUND_POLLING_STARTED then
+        return
+    end
+
+    FFTM_BACKGROUND_POLLING_STARTED = true
+    FFTM_LAST_HEARTBEAT_AT = os.clock()
+
+    -- Matcha HTTP is synchronous. Yield before each request and keep it off
+    -- RenderStepped so a slow response cannot pause combat/visual callbacks.
+    task.spawn(function()
+        while FFTM_RUNNING do
+            wait(10)
+            if not FFTM_RUNNING then break end
+
+            FFTM_LAST_HEARTBEAT_AT = os.clock()
+            pcall(FFTMSendHeartbeat)
+
+            if type(FFTM_ADMIN_KEY) == "string"
+                and FFTM_ADMIN_KEY ~= ""
+                and type(FFTMRefreshAdminDropdown) == "function"
+                and (os.clock() - FFTM_LAST_ADMIN_REFRESH_AT) >= 30 then
+
+                FFTM_LAST_ADMIN_REFRESH_AT = os.clock()
+                pcall(FFTMRefreshAdminDropdown)
+            end
+        end
+
+        FFTM_BACKGROUND_POLLING_STARTED = false
+    end)
 end
 
 function FFTMFetchAdminSessions()
@@ -512,13 +544,23 @@ local function getCharacterData(player)
         VisualRuntime.CharacterCache[player] = data
     end
 
-    if data.Character ~= character or data.FrameId ~= VisualRuntime.FrameId then
-        -- Reacquire live parts each visual frame. A cached proxy can still
-        -- report the old Parent during respawn/streaming transitions.
-        data.Character = character
-        data.Humanoid = character:FindFirstChildOfClass("Humanoid")
-        data.Root = character:FindFirstChild("HumanoidRootPart")
+    if data.FrameId ~= VisualRuntime.FrameId then
         data.FrameId = VisualRuntime.FrameId
+
+        local now = os.clock()
+        if data.Character ~= character
+            or data.Root == nil
+            or data.Humanoid == nil
+            or now >= (data.NextPartRefreshAt or 0) then
+
+            -- Periodic reacquisition still catches replacement parts whose old
+            -- proxy reports a valid Parent, without two lookups per player at
+            -- every 30 Hz visual update.
+            data.Character = character
+            data.Humanoid = character:FindFirstChildOfClass("Humanoid")
+            data.Root = character:FindFirstChild("HumanoidRootPart")
+            data.NextPartRefreshAt = now + 0.25
+        end
     end
 
     return data.Humanoid, data.Root
@@ -4999,24 +5041,6 @@ function MainLoop()
 
     local now = os.clock()
 
-    -- Matcha-safe heartbeat. No task.wait() / coroutine required.
-    -- First heartbeat is immediate, then each active client checks in every
-    -- 10 seconds so remote shutdown is picked up within about 10 seconds.
-    if (now - FFTM_LAST_HEARTBEAT_AT) >= 10 then
-        FFTM_LAST_HEARTBEAT_AT = now
-        FFTMSendHeartbeat()
-    end
-
-    -- Keep the admin's same-server user list fresh automatically.
-    if type(FFTM_ADMIN_KEY) == "string"
-        and FFTM_ADMIN_KEY ~= ""
-        and type(FFTMRefreshAdminDropdown) == "function"
-        and (now - FFTM_LAST_ADMIN_REFRESH_AT) >= 30 then
-
-        FFTM_LAST_ADMIN_REFRESH_AT = now
-        pcall(FFTMRefreshAdminDropdown)
-    end
-
     local localChar = LocalPlayer.Character
     if not localChar then return end
 
@@ -5056,8 +5080,9 @@ function MainLoop()
     end
 end
 
--- Register/log this session immediately, then continue with 5-second checks.
+-- Register/log this session immediately, then continue with 10-second checks.
 FFTMSendHeartbeat()
+FFTMStartBackgroundPolling()
 
 RunService.RenderStepped:Connect(MainLoop)
 --RunService.Heartbeat:Connect(MainLoop)
@@ -5070,10 +5095,29 @@ VisualRuntime.UpdateRate = math.clamp(
     120
 )
 VisualRuntime.UpdateInterval = 1 / VisualRuntime.UpdateRate
+VisualRuntime.OverlayInterval = math.max(VisualRuntime.UpdateInterval, 1 / 30)
+VisualRuntime.MinimumUpdateRate = math.min(12, VisualRuntime.UpdateRate)
 VisualRuntime.Accumulator = VisualRuntime.UpdateInterval
+VisualRuntime.OverlayAccumulator = VisualRuntime.UpdateInterval
 VisualRuntime.BaseVisualsWereEnabled = false
 VisualRuntime.PlayerRefreshInterval = 1
 VisualRuntime.NextPlayerRefreshAt = 0
+
+function VisualRuntime.RefreshUpdateInterval()
+    local rate = VisualRuntime.UpdateRate
+
+    if _G.FFTMAdaptiveVisuals ~= false
+        and (state.ESP or state.Tracers or state.PlayerHealth) then
+
+        local otherPlayers = math.max(0, #VisualRuntime.Players - 1)
+        local loadFactor = 1 + math.max(0, otherPlayers - 8) / 16
+        rate = math.max(VisualRuntime.MinimumUpdateRate, rate / loadFactor)
+    end
+
+    VisualRuntime.EffectiveUpdateRate = rate
+    VisualRuntime.UpdateInterval = 1 / rate
+    VisualRuntime.OverlayInterval = math.max(VisualRuntime.UpdateInterval, 1 / 30)
+end
 
 function VisualRuntime.StepBaseVisuals(deltaTime)
     if not FFTM_RUNNING then
@@ -5092,6 +5136,11 @@ function VisualRuntime.StepBaseVisuals(deltaTime)
         end
 
         VisualRuntime.BaseVisualsWereEnabled = false
+        VisualRuntime.UpdateInterval = 1 / VisualRuntime.UpdateRate
+        VisualRuntime.OverlayInterval = math.max(
+            VisualRuntime.UpdateInterval,
+            1 / 30
+        )
         return
     end
 
@@ -5107,6 +5156,7 @@ function VisualRuntime.StepBaseVisuals(deltaTime)
         VisualRuntime.NextPlayerRefreshAt =
             now + VisualRuntime.PlayerRefreshInterval
         VisualRuntime.RefreshPlayers()
+        VisualRuntime.RefreshUpdateInterval()
     end
 
     VisualRuntime.Accumulator += deltaTime
@@ -5128,13 +5178,15 @@ RunService.RenderStepped:Connect(function(deltaTime)
         VisualRuntime.HideAllBaseDrawings()
         VisualRuntime.LastFrameError = tostring(err)
     end
-end)
 
-RunService.RenderStepped:Connect(function()
-    if not FFTM_RUNNING then return end
-    -- Optional status/selection Drawing failures cannot stop base ESP.
-    pcall(VisualRuntime.PositionAutoParryStatus)
-    pcall(UpdateSelectedMarkers)
+    -- Optional overlays do not need the monitor's full render rate. Capping
+    -- them to the same visual interval avoids excess projections at high FPS.
+    VisualRuntime.OverlayAccumulator += deltaTime
+    if VisualRuntime.OverlayAccumulator >= VisualRuntime.OverlayInterval then
+        VisualRuntime.OverlayAccumulator %= VisualRuntime.OverlayInterval
+        pcall(VisualRuntime.PositionAutoParryStatus)
+        pcall(UpdateSelectedMarkers)
+    end
 end)
 
 print("Free Fortnite Cheats TM | Wabi tabs safe-fallback build loaded")
