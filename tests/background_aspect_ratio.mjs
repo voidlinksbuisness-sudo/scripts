@@ -17,7 +17,7 @@ function longString(value) {
 }
 
 const pattern = 'local Wide = State%.BackdropWide and State%.BackdropWide %* State%.W or PaneHeight %* 0%.6%s+local Tall = State%.BackdropWide and %(State%.BackdropTall or 1%) %* PaneHeight or PaneHeight';
-const replacement = 'local Tall = (State.BackdropTall or 1) * PaneHeight\\n      local Wide = State.BackdropWide and State.BackdropWide * Tall or Tall * 0.6';
+const replacement = 'local Tall = (State.BackdropTall or 1) * PaneHeight\\n      local Wide = State.BackdropWide and State.BackdropWide * Tall or Tall * 0.6\\n      if State.BackdropWide and Wide > State.W then\\n        Wide = State.W\\n        Tall = Wide / State.BackdropWide\\n      end';
 
 for (const required of [
   'Library.BackgroundAspectRatio = 1800 / 900',
@@ -33,25 +33,32 @@ local source = ${longString(ins)}
 local patched, replacements = string.gsub(source, ${JSON.stringify(pattern)}, ${JSON.stringify(replacement)}, 1)
 assert(replacements == 1, "pinned INS renderer patch must match exactly once")
 assert(string.find(patched, "local Wide = State.BackdropWide and State.BackdropWide * Tall or Tall * 0.6", 1, true))
+assert(string.find(patched, "if State.BackdropWide and Wide > State.W then", 1, true))
 assert(not string.find(patched, "State.BackdropWide * State.W", 1, true))
 
 local function layout(windowWidth, paneHeight, aspectRatio, heightFraction)
     local tall = (heightFraction or 1) * paneHeight
     local wide = aspectRatio and aspectRatio * tall or tall * 0.6
+    if aspectRatio and wide > windowWidth then
+        wide = windowWidth
+        tall = wide / aspectRatio
+    end
     return (windowWidth - wide) / 2, wide, tall
 end
 
 for _, size in ipairs({{500, 400}, {700, 400}, {1200, 650}, {360, 650}}) do
     local x, wide, tall = layout(size[1], size[2], 1800 / 900, 1)
-    assert(tall == size[2], "background height must follow pane height")
     assert(wide / tall == 2, "background must preserve its 2:1 aspect ratio")
     assert(x == (size[1] - wide) / 2, "background must stay horizontally centered")
+    assert(wide <= size[1], "background must not overflow window width")
+    assert(tall <= size[2], "background must not overflow pane height")
 end
 
-local _, narrowWide = layout(500, 400, 2, 1)
-local _, wideWindowWide = layout(1000, 400, 2, 1)
-assert(narrowWide == wideWindowWide, "window width must not stretch the background")
-print("PASS: height-driven 2:1 background layout and exact pinned INS patch")
+local _, narrowWide, narrowTall = layout(500, 400, 2, 1)
+assert(narrowWide == 500 and narrowTall == 250, "narrow windows must constrain by width")
+local _, wideWindowWide, wideWindowTall = layout(1000, 400, 2, 1)
+assert(wideWindowWide == 800 and wideWindowTall == 400, "wide windows must use full height")
+print("PASS: contained 2:1 background layout and exact pinned INS patch")
 `;
 
 const directory = mkdtempSync(join(tmpdir(), 'fftm-background-aspect-'));
