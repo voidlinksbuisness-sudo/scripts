@@ -1,4 +1,4 @@
--- FFTM_MAIN_BUILD = "2026-08-30-BACKGROUND-ASPECT-1"
+-- FFTM_MAIN_BUILD = "2026-08-30-BACKGROUND-CONTAIN-1"
 --// INS UI
 local Library = {
     Raw = (function()
@@ -13,7 +13,7 @@ local Library = {
         local patched, replacements = string.gsub(
             source,
             "local Wide = State%.BackdropWide and State%.BackdropWide %* State%.W or PaneHeight %* 0%.6%s+local Tall = State%.BackdropWide and %(State%.BackdropTall or 1%) %* PaneHeight or PaneHeight",
-            "local Tall = (State.BackdropTall or 1) * PaneHeight\n      local Wide = State.BackdropWide and State.BackdropWide * Tall or Tall * 0.6",
+            "local Tall = (State.BackdropTall or 1) * PaneHeight\n      local Wide = State.BackdropWide and State.BackdropWide * Tall or Tall * 0.6\n      if State.BackdropWide and Wide > State.W then\n        Wide = State.W\n        Tall = Wide / State.BackdropWide\n      end",
             1
         )
 
@@ -270,7 +270,7 @@ local Camera = workspace.CurrentCamera
 --==================================================
 -- FFTM REMOTE SESSION CONTROL
 --==================================================
-FFTM_MAIN_VERSION = "2026-08-30-BACKGROUND-ASPECT-1"
+FFTM_MAIN_VERSION = "2026-08-30-BACKGROUND-CONTAIN-1"
 FFTM_API_URL = "https://fftm-parry-api.voidlinksbuisness.workers.dev"
 FFTM_RUNNING = true
 FFTM_LAST_HEARTBEAT_AT = -1000000
