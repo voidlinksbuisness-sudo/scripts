@@ -391,10 +391,6 @@ function FFTMSendHeartbeat()
             and not FFTM_USERNAME_LOG_CONFIRMED then
 
             FFTM_USERNAME_LOG_CONFIRMED = true
-            print(
-                "[FFTM] Username logging active for "
-                .. tostring(LocalPlayer.Name)
-            )
         end
 
         if data.shutdown == true then

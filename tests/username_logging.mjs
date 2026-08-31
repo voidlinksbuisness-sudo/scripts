@@ -15,20 +15,19 @@ for (const required of [
   'username = LocalPlayer.Name',
   'display_name = LocalPlayer.DisplayName',
   'data.username_logged == true',
-  '[FFTM] Username logging active for ',
 ]) {
   if (!main.includes(required)) throw new Error(`Missing username logging behavior: ${required}`);
+}
+
+if (main.includes('Username logging active')) {
+  throw new Error('Username logging must remain silent in the client');
 }
 
 const harness = `
 local capturedQuery
 local response = { ok = true, username_logged = true, shutdown = false }
-local messages = {}
 local shutdowns = 0
 
-print = function(message)
-    table.insert(messages, message)
-end
 FFTMGetJson = function(path, query)
     assert(path == "/heartbeat")
     capturedQuery = query
@@ -57,22 +56,18 @@ FFTMSendHeartbeat()
 assert(capturedQuery.username == "Builderman")
 assert(capturedQuery.display_name == "Builder Man")
 assert(FFTM_USERNAME_LOG_CONFIRMED == true)
-assert(#messages == 1)
-assert(string.find(messages[1], "Builderman", 1, true))
 
 FFTMSendHeartbeat()
-assert(#messages == 1, "confirmation must print only once")
 
 response = { ok = true, shutdown = false }
 FFTM_USERNAME_LOG_CONFIRMED = false
 FFTMSendHeartbeat()
 assert(FFTM_USERNAME_LOG_CONFIRMED == false, "old Worker responses must remain compatible")
-assert(#messages == 1)
 
 response = { ok = true, username_logged = true, shutdown = true }
 FFTMSendHeartbeat()
 assert(shutdowns == 1, "shutdown handling must remain intact")
-print("PASS: client sends identity and confirms updated Worker logging once")
+print("PASS: client sends identity and silently records Worker acknowledgement")
 `;
 
 const directory = mkdtempSync(join(tmpdir(), 'fftm-username-logging-'));
