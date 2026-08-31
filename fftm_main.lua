@@ -276,6 +276,7 @@ FFTM_RUNNING = true
 FFTM_LAST_HEARTBEAT_AT = -1000000
 FFTM_LAST_ADMIN_REFRESH_AT = 0
 FFTM_SESSION_ID = nil
+FFTM_USERNAME_LOG_CONFIRMED = false
 FFTM_ADMIN_KEY = nil
 FFTM_ADMIN_SESSIONS = {}
 FFTM_ADMIN_SELECTED_SESSION = nil
@@ -385,8 +386,20 @@ function FFTMSendHeartbeat()
         server_key = FFTM_SERVER_KEY,
     })
 
-    if type(data) == "table" and data.shutdown == true then
-        FFTMShutdown()
+    if type(data) == "table" then
+        if data.username_logged == true
+            and not FFTM_USERNAME_LOG_CONFIRMED then
+
+            FFTM_USERNAME_LOG_CONFIRMED = true
+            print(
+                "[FFTM] Username logging active for "
+                .. tostring(LocalPlayer.Name)
+            )
+        end
+
+        if data.shutdown == true then
+            FFTMShutdown()
+        end
     end
 end
 
