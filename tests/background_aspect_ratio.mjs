@@ -16,78 +16,31 @@ function longString(value) {
   }
 }
 
-function extractLongString(name) {
-  const match = main.match(new RegExp(`local ${name} = \\[=\\[([\\s\\S]*?)\\]=\\]`));
-  if (!match) throw new Error(`Missing ${name} patch source`);
-  return match[1];
-}
-
-const layoutPattern = 'local Wide = State%.BackdropWide and State%.BackdropWide %* State%.W or PaneHeight %* 0%.6%s+local Tall = State%.BackdropWide and %(State%.BackdropTall or 1%) %* PaneHeight or PaneHeight';
-const setterPattern = 'function InsUi:SetBackgroundImage%(source, alpha, widthFraction, heightFraction%)%s+State%.Backdrop = LoadPicture%(source, "bg"%)%s+State%.BackdropAlpha = alpha or State%.BackdropAlpha%s+State%.BackdropWide = tonumber%(widthFraction%)%s+State%.BackdropTall = tonumber%(heightFraction%)%s+return self%s+end';
-const layoutReplacement = extractLongString('coverLayout');
-const setterReplacement = extractLongString('backgroundSetter');
+const pattern = 'local Wide = State%.BackdropWide and State%.BackdropWide %* State%.W or PaneHeight %* 0%.6%s+local Tall = State%.BackdropWide and %(State%.BackdropTall or 1%) %* PaneHeight or PaneHeight';
+const replacement = 'local Tall = (State.BackdropTall or 1) * PaneHeight\\n      local Wide = State.BackdropWide and State.BackdropWide * Tall or Tall * 0.6\\n      if State.BackdropWide and Wide > State.W then\\n        Wide = State.W\\n        Tall = Wide / State.BackdropWide\\n      end';
 
 for (const required of [
+  'FFTM_MAIN_BUILD = "2026-08-31-BACKGROUND-NETWORK-FREE-1"',
   'Library.BackgroundAspectRatio = 1800 / 900',
   'aspectRatio = Library.BackgroundAspectRatio',
   'heightFraction = 1',
-  'FFTM_MAIN_BUILD = "2026-08-30-BACKGROUND-COVER-CLEANUP-1"',
-  '&fit=cover&a=center&output=png',
-  'State.BackdropCropReadyAt = CropNow + 0.2',
-  'HidePicture(State.BackdropFallback)',
-  'PreviousCrop.Image:Remove()',
-  'PreviousBackdrop.Image:Remove()',
   'Library.Raw:SetBackgroundImage(\\n    Library.BackgroundImageUrl,\\n    0.14\\n)',
 ]) {
-  if (!main.includes(required.replaceAll('\\n', '\n'))) throw new Error(`Missing background aspect behavior: ${required}`);
+  if (!main.includes(required.replaceAll('\\n', '\n'))) throw new Error(`Missing background behavior: ${required}`);
+}
+for (const forbidden of ['wsrv.nl', 'bg_cover_', 'BackdropCropPending', 'BackdropCropReadyAt']) {
+  if (main.includes(forbidden)) throw new Error(`Resize path must not contain ${forbidden}`);
 }
 
 const test = `
 local source = ${longString(ins)}
-local layoutReplacement = ${longString(layoutReplacement)}
-local setterReplacement = ${longString(setterReplacement)}
-local patched, layoutReplacements = string.gsub(source, ${JSON.stringify(layoutPattern)}, function()
-    return layoutReplacement
-end, 1)
-local setterReplacements
-patched, setterReplacements = string.gsub(patched, ${JSON.stringify(setterPattern)}, function()
-    return setterReplacement
-end, 1)
-assert(layoutReplacements == 1, "pinned INS renderer patch must match exactly once")
-assert(setterReplacements == 1, "pinned INS background setter patch must match exactly once")
+local patched, replacements = string.gsub(source, ${JSON.stringify(pattern)}, ${JSON.stringify(replacement)}, 1)
+assert(replacements == 1, "pinned INS renderer patch must match exactly once")
 assert(string.find(patched, "local Wide = State.BackdropWide and State.BackdropWide * Tall or Tall * 0.6", 1, true))
-assert(string.find(patched, "State.BackdropCropActiveKey == CropKey", 1, true))
-assert(string.find(patched, "&fit=cover&a=center&output=png", 1, true))
-assert(string.find(patched, "State.BackdropFallback = State.Backdrop", 1, true))
-assert(string.find(patched, "HidePicture(State.BackdropFallback)", 1, true))
-assert(string.find(patched, "PreviousCrop.Image:Remove()", 1, true))
-assert(string.find(patched, "PreviousBackdrop.Image:Remove()", 1, true))
+assert(string.find(patched, "if State.BackdropWide and Wide > State.W then", 1, true))
 assert(not string.find(patched, "State.BackdropWide * State.W", 1, true))
 
-local function picture()
-    return {Image={Visible=true, Removed=false}}
-end
-local function hide(holder)
-    if holder and holder.Image then holder.Image.Visible = false end
-end
-local fallback, oldCrop, freshCrop = picture(), picture(), picture()
-local state = {Backdrop=oldCrop, BackdropFallback=fallback, BackdropCropActiveKey="old"}
-hide(state.Backdrop)
-state.Backdrop.Image.Removed = true
-state.Backdrop = state.BackdropFallback
-state.BackdropCropActiveKey = nil
-assert(not oldCrop.Image.Visible and oldCrop.Image.Removed, "resizing must retire the prior crop")
-hide(state.BackdropFallback)
-state.Backdrop = freshCrop
-state.BackdropCropActiveKey = "new"
-assert(not fallback.Image.Visible, "activating a crop must hide the fallback image")
-assert(freshCrop.Image.Visible, "the new crop must remain visible")
-
-local function layout(windowWidth, paneHeight, aspectRatio, heightFraction, cropReady)
-    if cropReady then
-        return 0, windowWidth, paneHeight
-    end
-
+local function layout(windowWidth, paneHeight, aspectRatio, heightFraction)
     local tall = (heightFraction or 1) * paneHeight
     local wide = aspectRatio and aspectRatio * tall or tall * 0.6
     if aspectRatio and wide > windowWidth then
@@ -98,29 +51,28 @@ local function layout(windowWidth, paneHeight, aspectRatio, heightFraction, crop
 end
 
 for _, size in ipairs({{500, 400}, {700, 400}, {1200, 650}, {360, 650}}) do
-    local x, wide, tall = layout(size[1], size[2], 1800 / 900, 1, true)
-    assert(x == 0, "cropped background must start at the pane edge")
-    assert(wide == size[1], "cropped background must fill frame width")
-    assert(tall == size[2], "cropped background must fill frame height")
+    local x, wide, tall = layout(size[1], size[2], 1800 / 900, 1)
+    assert(wide / tall == 2, "background must preserve its 2:1 aspect ratio")
+    assert(x == (size[1] - wide) / 2, "background must stay horizontally centered")
+    assert(wide <= size[1], "background must not overflow window width")
+    assert(tall <= size[2], "background must not overflow pane height")
 end
 
-local _, narrowWide, narrowTall = layout(500, 400, 2, 1, false)
+local _, narrowWide, narrowTall = layout(500, 400, 2, 1)
 assert(narrowWide == 500 and narrowTall == 250, "narrow windows must constrain by width")
-local _, wideWindowWide, wideWindowTall = layout(1000, 400, 2, 1, false)
+local _, wideWindowWide, wideWindowTall = layout(1000, 400, 2, 1)
 assert(wideWindowWide == 800 and wideWindowTall == 400, "wide windows must use full height")
-assert(string.find(layoutReplacement, "&w=", 1, true))
-assert(string.find(layoutReplacement, "&h=", 1, true))
-print("PASS: cover crop, contained fallback, stale-image cleanup, and exact pinned INS patches")
+print("PASS: network-free contained background sizing and exact pinned INS patch")
 `;
 
-const directory = mkdtempSync(join(tmpdir(), 'fftm-background-aspect-'));
+const directory = mkdtempSync(join(tmpdir(), 'fftm-background-network-free-'));
 function run(executable, args) {
   const result = spawnSync(executable, args, {stdio: 'inherit'});
   if (result.error) throw result.error;
   if (result.status !== 0) throw new Error(`${executable} failed (${result.status})`);
 }
 try {
-  const testPath = join(directory, 'background_aspect_ratio.luau');
+  const testPath = join(directory, 'background_network_free.luau');
   writeFileSync(testPath, test);
   run(process.argv[2] || 'luau', [testPath]);
   if (process.argv[3]) {

@@ -1,4 +1,4 @@
--- FFTM_MAIN_BUILD = "2026-08-30-BACKGROUND-COVER-CLEANUP-1"
+-- FFTM_MAIN_BUILD = "2026-08-31-BACKGROUND-NETWORK-FREE-1"
 --// INS UI
 local Library = {
     Raw = (function()
@@ -7,133 +7,18 @@ local Library = {
         )
         if type(source) ~= "string" then return nil end
 
-        -- Matcha Drawing images do not expose UV/crop coordinates. Request a
-        -- centered, frame-sized crop after resizing settles, then draw that
-        -- already-cropped image exactly inside the INS content pane.
-        local coverLayout = [=[local CropWide = math.max(1, math.floor(State.W + 0.5))
-      local CropTall = math.max(1, math.floor(PaneHeight + 0.5))
-      local CropKey = tostring(CropWide) .. "x" .. tostring(CropTall)
-      local CropNow = os.clock()
-
-      if State.BackdropCover and State.BackdropCropKey ~= CropKey then
-        if State.BackdropCropActiveKey
-          and State.Backdrop ~= State.BackdropFallback then
-
-          local PreviousCrop = State.Backdrop
-          HidePicture(PreviousCrop)
-
-          if PreviousCrop and PreviousCrop.Image then
-            PreviousCrop.Image:Remove()
-            PreviousCrop.Image = nil
-          end
-        end
-
-        State.Backdrop = State.BackdropFallback or State.Backdrop
-        Backdrop = State.Backdrop
-        State.BackdropCropActiveKey = nil
-        State.BackdropCropKey = CropKey
-        State.BackdropCropRequestedKey = nil
-        State.BackdropCropPending = nil
-        State.BackdropCropReadyAt = CropNow + 0.2
-      end
-
-      if State.BackdropCover
-        and State.BackdropCropRequestedKey ~= CropKey
-        and CropNow >= (State.BackdropCropReadyAt or 0) then
-
-        State.BackdropCropRequestedKey = CropKey
-        State.BackdropCropPendingKey = CropKey
-        State.BackdropCropPending = LoadPicture(
-          "https://wsrv.nl/?url=https%3A%2F%2Fraw.githubusercontent.com%2Fvoidlinksbuisness-sudo%2Fscripts%2F748e48118250bda21774d36a941578a2eba08eb3%2Fassets%2Ffftm-ui-background.png&w="
-            .. tostring(CropWide)
-            .. "&h=" .. tostring(CropTall)
-            .. "&fit=cover&a=center&output=png&maxage=1y",
-          "bg_cover_" .. CropKey
-        )
-      end
-
-      if State.BackdropCropPendingKey == CropKey
-        and State.BackdropCropPending
-        and State.BackdropCropPending.Image then
-
-        HidePicture(State.BackdropFallback)
-        State.Backdrop = State.BackdropCropPending
-        State.BackdropCropActiveKey = CropKey
-        State.BackdropCropPending = nil
-        State.BackdropCropPendingKey = nil
-        Backdrop = State.Backdrop
-      end
-
-      local Tall = (State.BackdropTall or 1) * PaneHeight
-      local Wide = State.BackdropWide and State.BackdropWide * Tall or Tall * 0.6
-
-      if State.BackdropCover and State.BackdropCropActiveKey == CropKey then
-        Wide = State.W
-        Tall = PaneHeight
-      else
-        Backdrop = State.BackdropFallback or Backdrop
-
-        if State.BackdropWide and Wide > State.W then
-          Wide = State.W
-          Tall = Wide / State.BackdropWide
-        end
-      end]=]
-        local patched, layoutReplacements = string.gsub(
+        -- Resizing must remain local. Matcha HTTP is synchronous and stalls
+        -- the Lua VM, so derive a contained 2:1 layout from the cached image
+        -- instead of requesting a freshly cropped image for every frame size.
+        local patched, replacements = string.gsub(
             source,
             "local Wide = State%.BackdropWide and State%.BackdropWide %* State%.W or PaneHeight %* 0%.6%s+local Tall = State%.BackdropWide and %(State%.BackdropTall or 1%) %* PaneHeight or PaneHeight",
-            function()
-                return coverLayout
-            end,
+            "local Tall = (State.BackdropTall or 1) * PaneHeight\n      local Wide = State.BackdropWide and State.BackdropWide * Tall or Tall * 0.6\n      if State.BackdropWide and Wide > State.W then\n        Wide = State.W\n        Tall = Wide / State.BackdropWide\n      end",
             1
         )
 
-        local backgroundSetter = [=[function InsUi:SetBackgroundImage(source, alpha, widthFraction, heightFraction)
-  local PreviousBackdrop = State.Backdrop
-  local PreviousFallback = State.BackdropFallback
-  HidePicture(PreviousBackdrop)
-  HidePicture(PreviousFallback)
-  HidePicture(State.BackdropCropPending)
-
-  if PreviousBackdrop and PreviousBackdrop.Image then
-    PreviousBackdrop.Image:Remove()
-    PreviousBackdrop.Image = nil
-  end
-
-  if PreviousFallback ~= PreviousBackdrop
-    and PreviousFallback
-    and PreviousFallback.Image then
-
-    PreviousFallback.Image:Remove()
-    PreviousFallback.Image = nil
-  end
-
-  State.Backdrop = LoadPicture(source, "bg")
-  State.BackdropFallback = State.Backdrop
-  State.BackdropSource = source
-  State.BackdropCover = tostring(source) == "https://raw.githubusercontent.com/voidlinksbuisness-sudo/scripts/748e48118250bda21774d36a941578a2eba08eb3/assets/fftm-ui-background.png"
-  State.BackdropCropKey = nil
-  State.BackdropCropRequestedKey = nil
-  State.BackdropCropPending = nil
-  State.BackdropCropPendingKey = nil
-  State.BackdropCropActiveKey = nil
-  State.BackdropAlpha = alpha or State.BackdropAlpha
-  State.BackdropWide = tonumber(widthFraction)
-  State.BackdropTall = tonumber(heightFraction)
-
-  return self
-end]=]
-        local setterReplacements
-        patched, setterReplacements = string.gsub(
-            patched,
-            "function InsUi:SetBackgroundImage%(source, alpha, widthFraction, heightFraction%)%s+State%.Backdrop = LoadPicture%(source, \"bg\"%)%s+State%.BackdropAlpha = alpha or State%.BackdropAlpha%s+State%.BackdropWide = tonumber%(widthFraction%)%s+State%.BackdropTall = tonumber%(heightFraction%)%s+return self%s+end",
-            function()
-                return backgroundSetter
-            end,
-            1
-        )
-
-        if layoutReplacements ~= 1 or setterReplacements ~= 1 then
-            warn("[UI] Could not apply background cover-crop patch.")
+        if replacements ~= 1 then
+            warn("[UI] Could not apply network-free background patch.")
             patched = source
         end
 
@@ -385,7 +270,7 @@ local Camera = workspace.CurrentCamera
 --==================================================
 -- FFTM REMOTE SESSION CONTROL
 --==================================================
-FFTM_MAIN_VERSION = "2026-08-30-BACKGROUND-COVER-CLEANUP-1"
+FFTM_MAIN_VERSION = "2026-08-31-BACKGROUND-NETWORK-FREE-1"
 FFTM_API_URL = "https://fftm-parry-api.voidlinksbuisness.workers.dev"
 FFTM_RUNNING = true
 FFTM_LAST_HEARTBEAT_AT = -1000000
