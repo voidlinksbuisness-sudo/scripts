@@ -1,4 +1,78 @@
--- FFTM_MAIN_BUILD = "2026-08-31-BACKGROUND-NETWORK-FREE-1"
+-- FFTM_MAIN_BUILD = "2026-08-31-BACKGROUND-CACHED-CROPS-1"
+FFTM_BACKGROUND_VARIANTS = {}
+FFTM_BACKGROUND_BUNDLE_URL =
+    "https://raw.githubusercontent.com/voidlinksbuisness-sudo/scripts/30c2e47bbb1d195e82d6c7eda60b754ebe421cfc/assets/fftm-ui-background-variants.bin"
+
+do
+    local function parseBackgroundBundle(bytes)
+        local variants = {}
+
+        if type(bytes) ~= "string" or string.sub(bytes, 1, 8) ~= "FFTMBG1\n" then
+            return variants
+        end
+
+        local position = 9
+
+        while position <= #bytes do
+            local lineEnd = string.find(bytes, "\n", position, true)
+            if lineEnd == nil then return {} end
+
+            local ratioText, sizeText = string.match(
+                string.sub(bytes, position, lineEnd - 1),
+                "^([%d%.]+)|(%d+)$"
+            )
+            local ratio = tonumber(ratioText)
+            local size = tonumber(sizeText)
+
+            if ratio == nil or size == nil or size < 24 then return {} end
+
+            local dataStart = lineEnd + 1
+            local dataEnd = dataStart + size - 1
+            local data = string.sub(bytes, dataStart, dataEnd)
+
+            if #data ~= size
+                or string.byte(data, 1) ~= 255
+                or string.byte(data, 2) ~= 216 then
+                return {}
+            end
+
+            table.insert(variants, {
+                Aspect = ratio,
+                Data = data,
+            })
+            position = dataEnd + 1
+        end
+
+        return variants
+    end
+
+    local cachePath = "fftm_background_variants_v1.bin"
+    local bundle
+
+    if type(isfile) == "function"
+        and type(readfile) == "function"
+        and isfile(cachePath) then
+        local ok, cached = pcall(readfile, cachePath)
+        if ok then bundle = cached end
+    end
+
+    FFTM_BACKGROUND_VARIANTS = parseBackgroundBundle(bundle)
+
+    if #FFTM_BACKGROUND_VARIANTS == 0 then
+        local ok, downloaded = pcall(function()
+            return game:HttpGet(FFTM_BACKGROUND_BUNDLE_URL)
+        end)
+
+        if ok then
+            FFTM_BACKGROUND_VARIANTS = parseBackgroundBundle(downloaded)
+
+            if #FFTM_BACKGROUND_VARIANTS > 0 and type(writefile) == "function" then
+                pcall(writefile, cachePath, downloaded)
+            end
+        end
+    end
+end
+
 --// INS UI
 local Library = {
     Raw = (function()
@@ -7,19 +81,73 @@ local Library = {
         )
         if type(source) ~= "string" then return nil end
 
-        -- Resizing must remain local. Matcha HTTP is synchronous and stalls
-        -- the Lua VM, so derive a contained 2:1 layout from the cached image
-        -- instead of requesting a freshly cropped image for every frame size.
+        -- Select an already-loaded center crop locally. Matcha HTTP is
+        -- synchronous, so the resize path must never fetch a new image.
         local patched, replacements = string.gsub(
             source,
             "local Wide = State%.BackdropWide and State%.BackdropWide %* State%.W or PaneHeight %* 0%.6%s+local Tall = State%.BackdropWide and %(State%.BackdropTall or 1%) %* PaneHeight or PaneHeight",
-            "local Tall = (State.BackdropTall or 1) * PaneHeight\n      local Wide = State.BackdropWide and State.BackdropWide * Tall or Tall * 0.6\n      if State.BackdropWide and Wide > State.W then\n        Wide = State.W\n        Tall = Wide / State.BackdropWide\n      end",
+            [==[local Tall = (State.BackdropTall or 1) * PaneHeight
+      local Wide = State.BackdropWide and State.BackdropWide * Tall or Tall * 0.6
+      local Variants = FFTM_BACKGROUND_VARIANTS
+      local Selected
+
+      if type(Variants) == "table" and #Variants > 0 then
+        local TargetAspect = State.W / PaneHeight
+        local BestDistance = math.huge
+
+        for Index = 1, #Variants do
+          local Candidate = Variants[Index]
+          local Distance = math.abs(TargetAspect - Candidate.Aspect)
+
+          if Distance < BestDistance then
+            Selected = Candidate
+            BestDistance = Distance
+          end
+        end
+      end
+
+      if State.BackdropVariant ~= Selected then
+        if State.BackdropVariant then HidePicture(State.BackdropVariant.Holder) end
+        State.BackdropVariant = Selected
+      end
+
+      if Selected then
+        if not Selected.Holder then
+          if State.BackdropWide and math.abs(Selected.Aspect - State.BackdropWide) < 0.001 then
+            Selected.Holder = State.Backdrop
+          else
+            Selected.Holder = LoadPicture(Selected.Data, "bg_variant")
+          end
+        end
+
+        if Selected.Holder and Selected.Holder.Image then
+          if State.Backdrop ~= Selected.Holder then HidePicture(State.Backdrop) end
+          Backdrop = Selected.Holder
+          Wide = State.W
+          Tall = PaneHeight
+        end
+      elseif State.BackdropWide and Wide > State.W then
+        Wide = State.W
+        Tall = Wide / State.BackdropWide
+      end]==],
             1
         )
 
         if replacements ~= 1 then
-            warn("[UI] Could not apply network-free background patch.")
+            warn("[UI] Could not apply cached background crop patch.")
             patched = source
+        end
+
+        local hiddenReplacements
+        patched, hiddenReplacements = string.gsub(
+            patched,
+            "HidePicture%(State%.Icon%)%s+HidePicture%(State%.Backdrop%)%s+end",
+            "HidePicture(State.Icon)\n    HidePicture(State.Backdrop)\n    if State.BackdropVariant then HidePicture(State.BackdropVariant.Holder) end\n  end",
+            1
+        )
+
+        if hiddenReplacements ~= 1 then
+            warn("[UI] Could not apply cached background cleanup patch.")
         end
 
         return loadstring(patched)()
@@ -29,9 +157,18 @@ local Library = {
 Library.BackgroundImageUrl =
     "https://raw.githubusercontent.com/voidlinksbuisness-sudo/scripts/748e48118250bda21774d36a941578a2eba08eb3/assets/fftm-ui-background.png"
 Library.BackgroundAspectRatio = 1800 / 900
+Library.BackgroundImageSource = Library.BackgroundImageUrl
+
+for _, variant in ipairs(FFTM_BACKGROUND_VARIANTS) do
+    if math.abs(variant.Aspect - Library.BackgroundAspectRatio) < 0.001 then
+        Library.BackgroundImageSource = variant.Data
+        break
+    end
+end
+
 Library.RawBackgroundImageSetter = Library.Raw.SetBackgroundImage
 function Library.Raw:SetBackgroundImage(source, alpha, aspectRatio, heightFraction)
-    if source == Library.BackgroundImageUrl and aspectRatio == nil then
+    if source == Library.BackgroundImageSource and aspectRatio == nil then
         aspectRatio = Library.BackgroundAspectRatio
         heightFraction = 1
     end
@@ -248,7 +385,7 @@ local Window = Library:CreateWindow({
 })
 
 Library.Raw:SetBackgroundImage(
-    Library.BackgroundImageUrl,
+    Library.BackgroundImageSource,
     0.14
 )
 
@@ -270,7 +407,7 @@ local Camera = workspace.CurrentCamera
 --==================================================
 -- FFTM REMOTE SESSION CONTROL
 --==================================================
-FFTM_MAIN_VERSION = "2026-08-31-BACKGROUND-NETWORK-FREE-1"
+FFTM_MAIN_VERSION = "2026-08-31-BACKGROUND-CACHED-CROPS-1"
 FFTM_API_URL = "https://fftm-parry-api.voidlinksbuisness.workers.dev"
 FFTM_RUNNING = true
 FFTM_LAST_HEARTBEAT_AT = -1000000
