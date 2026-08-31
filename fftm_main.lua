@@ -1743,7 +1743,7 @@ UIToggles.AutoCounter = SafeAddToggle(AutoParryTab, {
 UIToggles.AutoAliCounter = SafeAddToggle(AutoParryTab, {
     Id = "auto_ali_counter",
     Title = "Auto Ali Counter",
-    Description = "Moves toward the target and performs the Ali counter against heavy attacks.",
+    Description = "Uses the Ali response for heavy attacks, except attacks such as CQC M2 that preserve their custom heavy logic.",
     Default = false,
     Callback = function(value)
         AutoAliCounterToggle.Set(value)
@@ -2876,6 +2876,11 @@ function VisualRuntime.IsHeavyAttack(attackConfig)
         or string.find(displayName, "heavy", 1, true) ~= nil
 end
 
+function VisualRuntime.ShouldAutoAliCounter(attackConfig)
+    return VisualRuntime.IsHeavyAttack(attackConfig)
+        and attackConfig.PreserveHeavyLogic ~= true
+end
+
 function Counter(StartTime, HoldFor)
     -- Match Auto Parry's Matcha input behavior:
     -- press once now, then release from ParryTask after a deadline.
@@ -3394,8 +3399,10 @@ local function ExecuteParry(regData, attackConfig, targetCharacter)
     regData.LastExecuteTime = now
 
     local isHeavy = VisualRuntime.IsHeavyAttack(attackConfig)
+    local useAutoAliCounter = AutoAliCounterToggle.Get()
+        and VisualRuntime.ShouldAutoAliCounter(attackConfig)
 
-    if isHeavy and AutoAliCounterToggle.Get() then
+    if useAutoAliCounter then
         local isBoxingM2 =
             tostring(attackConfig.Style) == "BoxingAnims"
             and string.lower(tostring(attackConfig.DisplayName or "")) == "m2"
@@ -3470,12 +3477,15 @@ local function EvaluateAnimation(anim, character, localCharacter, localRoot, tar
     if CheckCharacterDistance(localRoot, targetRoot) > AutoParryRange then return end
     
     -- PARRY FUNCTION OVERRIDE
-    -- Auto Counter takes priority for M2/heavy attacks, including attacks that
-    -- normally have a custom ParryFunction.
+    -- Standard Auto Counter may replace custom heavy handling. Auto Ali only
+    -- does so for attacks that do not explicitly preserve their heavy logic.
     local isHeavy = VisualRuntime.IsHeavyAttack(attackConfig)
+    local useAutoAliCounter = AutoAliCounterToggle.Get()
+        and VisualRuntime.ShouldAutoAliCounter(attackConfig)
 
     if attackConfig.ParryFunction
-        and not (isHeavy and (AutoCounterToggle.Get() or AutoAliCounterToggle.Get()))
+        and not (isHeavy and AutoCounterToggle.Get())
+        and not useAutoAliCounter
         and (now - regData.StartTime) <= (attackConfig.ReactionTime or DefaultReactionTime) + ParryWindow/2 then
         if AutoParryToggle.Get() then  
            attackConfig.ParryFunction({

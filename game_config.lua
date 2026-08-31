@@ -444,6 +444,7 @@ local GameConfig = {
      ["CQC"] = {
         ["rbxassetid://72310116631906"] = {
             DisplayName = "M2",
+            PreserveHeavyLogic = true,
             ParryFunction = function(data)
                 if data.RegistryData.Processed == true then return end
                 data.RegistryData.Processed = true
