@@ -31,9 +31,12 @@ for (const required of [
   'Library.BackgroundAspectRatio = 1800 / 900',
   'aspectRatio = Library.BackgroundAspectRatio',
   'heightFraction = 1',
-  'FFTM_MAIN_BUILD = "2026-08-30-BACKGROUND-COVER-1"',
+  'FFTM_MAIN_BUILD = "2026-08-30-BACKGROUND-COVER-CLEANUP-1"',
   '&fit=cover&a=center&output=png',
   'State.BackdropCropReadyAt = CropNow + 0.2',
+  'HidePicture(State.BackdropFallback)',
+  'PreviousCrop.Image:Remove()',
+  'PreviousBackdrop.Image:Remove()',
   'Library.Raw:SetBackgroundImage(\\n    Library.BackgroundImageUrl,\\n    0.14\\n)',
 ]) {
   if (!main.includes(required.replaceAll('\\n', '\n'))) throw new Error(`Missing background aspect behavior: ${required}`);
@@ -56,7 +59,29 @@ assert(string.find(patched, "local Wide = State.BackdropWide and State.BackdropW
 assert(string.find(patched, "State.BackdropCropActiveKey == CropKey", 1, true))
 assert(string.find(patched, "&fit=cover&a=center&output=png", 1, true))
 assert(string.find(patched, "State.BackdropFallback = State.Backdrop", 1, true))
+assert(string.find(patched, "HidePicture(State.BackdropFallback)", 1, true))
+assert(string.find(patched, "PreviousCrop.Image:Remove()", 1, true))
+assert(string.find(patched, "PreviousBackdrop.Image:Remove()", 1, true))
 assert(not string.find(patched, "State.BackdropWide * State.W", 1, true))
+
+local function picture()
+    return {Image={Visible=true, Removed=false}}
+end
+local function hide(holder)
+    if holder and holder.Image then holder.Image.Visible = false end
+end
+local fallback, oldCrop, freshCrop = picture(), picture(), picture()
+local state = {Backdrop=oldCrop, BackdropFallback=fallback, BackdropCropActiveKey="old"}
+hide(state.Backdrop)
+state.Backdrop.Image.Removed = true
+state.Backdrop = state.BackdropFallback
+state.BackdropCropActiveKey = nil
+assert(not oldCrop.Image.Visible and oldCrop.Image.Removed, "resizing must retire the prior crop")
+hide(state.BackdropFallback)
+state.Backdrop = freshCrop
+state.BackdropCropActiveKey = "new"
+assert(not fallback.Image.Visible, "activating a crop must hide the fallback image")
+assert(freshCrop.Image.Visible, "the new crop must remain visible")
 
 local function layout(windowWidth, paneHeight, aspectRatio, heightFraction, cropReady)
     if cropReady then
@@ -85,7 +110,7 @@ local _, wideWindowWide, wideWindowTall = layout(1000, 400, 2, 1, false)
 assert(wideWindowWide == 800 and wideWindowTall == 400, "wide windows must use full height")
 assert(string.find(layoutReplacement, "&w=", 1, true))
 assert(string.find(layoutReplacement, "&h=", 1, true))
-print("PASS: debounced centered cover crop, contained fallback, and exact pinned INS patches")
+print("PASS: cover crop, contained fallback, stale-image cleanup, and exact pinned INS patches")
 `;
 
 const directory = mkdtempSync(join(tmpdir(), 'fftm-background-aspect-'));
