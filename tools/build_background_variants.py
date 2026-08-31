@@ -31,7 +31,7 @@ def center_crop(image: Image.Image, ratio: float) -> Image.Image:
 
 
 def encode_jpeg(image: Image.Image) -> bytes:
-    max_edge = 1100
+    max_edge = 900
     if max(image.size) > max_edge:
         scale = max_edge / max(image.size)
         image = image.resize(
@@ -43,7 +43,7 @@ def encode_jpeg(image: Image.Image) -> bytes:
     image.convert("RGB").save(
         output,
         format="JPEG",
-        quality=72,
+        quality=68,
         optimize=True,
         progressive=True,
         subsampling="4:2:0",

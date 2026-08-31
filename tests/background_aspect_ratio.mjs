@@ -43,7 +43,7 @@ for (const required of [
   'FFTM_MAIN_BUILD = "2026-08-31-BACKGROUND-CACHED-CROPS-1"',
   'FFTM_MAIN_VERSION = "2026-08-31-BACKGROUND-CACHED-CROPS-1"',
   'FFTM_BACKGROUND_VARIANTS = {}',
-  '/ea7e4bff68dbcf1be14bc9228026e292893230d0/assets/fftm-ui-background-variants.bin',
+  '/30c2e47bbb1d195e82d6c7eda60b754ebe421cfc/assets/fftm-ui-background-variants.bin',
   'local Distance = math.abs(TargetAspect - Candidate.Aspect)',
   'Wide = State.W\n          Tall = PaneHeight',
   'if State.BackdropVariant then HidePicture(State.BackdropVariant.Holder) end',

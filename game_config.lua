@@ -338,6 +338,10 @@ local GameConfig = {
             DisplayName = "Ook",
             ["ReactionTime"] = 0.1,
         },
+		["rbxassetid://88619229552579"] = {
+            DisplayName = "NEW-M2",
+            ["ReactionTime"] = 0.1,
+        },
         ["rbxassetid://82904229252991"] = {
             DisplayName = "1stM1",
             ReactionTime = 0.16
