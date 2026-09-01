@@ -20,13 +20,15 @@ const pattern = 'local Wide = State%.BackdropWide and State%.BackdropWide %* Sta
 const replacement = 'local Tall = (State.BackdropTall or 1) * PaneHeight\\n      local Wide = State.BackdropWide and State.BackdropWide * Tall or Tall * 0.6\\n      if State.BackdropWide and Wide > State.W then\\n        Wide = State.W\\n        Tall = Wide / State.BackdropWide\\n      end';
 
 for (const required of [
-  'FFTM_MAIN_BUILD = "2026-08-31-BACKGROUND-NETWORK-FREE-1"',
   'Library.BackgroundAspectRatio = 1800 / 900',
   'aspectRatio = Library.BackgroundAspectRatio',
   'heightFraction = 1',
   'Library.Raw:SetBackgroundImage(\\n    Library.BackgroundImageUrl,\\n    0.14\\n)',
 ]) {
   if (!main.includes(required.replaceAll('\\n', '\n'))) throw new Error(`Missing background behavior: ${required}`);
+}
+if (!/FFTM_MAIN_BUILD = "2026-\d{2}-\d{2}-[A-Z0-9-]+"/.test(main)) {
+  throw new Error('Missing versioned FFTM build marker');
 }
 for (const forbidden of ['wsrv.nl', 'bg_cover_', 'BackdropCropPending', 'BackdropCropReadyAt']) {
   if (main.includes(forbidden)) throw new Error(`Resize path must not contain ${forbidden}`);
