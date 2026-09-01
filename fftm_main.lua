@@ -1,4 +1,4 @@
--- FFTM_MAIN_BUILD = "2026-08-31-BACKGROUND-NETWORK-FREE-1"
+-- FFTM_MAIN_BUILD = "2026-09-01-SINGLE-CURSOR-TARGET-1"
 --// INS UI
 local Library = {
     Raw = (function()
@@ -3770,11 +3770,98 @@ local function UpdateTargetCharacters(charactersList)
     VisualRuntime.RefreshParryTargetTrackers()
 end
 
-function CycleEvent(manualCycle)
+function VisualRuntime.GetCharacterCursorDistanceSquared(
+    character,
+    targetRoot,
+    mouseLocation
+)
+    local rootOk, rootPosition, rootOnScreen = pcall(function()
+        return WorldToScreen(targetRoot.Position)
+    end)
+
+    if not rootOk or not rootPosition then
+        rootPosition = nil
+        rootOnScreen = false
+    end
+
+    local head = character:FindFirstChild("Head")
+    local headOk, headPosition, headOnScreen = false, nil, false
+
+    if head then
+        headOk, headPosition, headOnScreen = pcall(function()
+            return WorldToScreen(head.Position)
+        end)
+    end
+
+    if not headOk or not headPosition then
+        headPosition = nil
+        headOnScreen = false
+    end
+
+    if not rootOnScreen and not headOnScreen then
+        return math.huge, false
+    end
+
+    local pointA = rootOnScreen and rootPosition or headPosition
+    local pointB = headOnScreen and headPosition or pointA
+    local segmentX = pointB.X - pointA.X
+    local segmentY = pointB.Y - pointA.Y
+    local segmentLengthSquared =
+        segmentX * segmentX + segmentY * segmentY
+    local segmentPosition = 0
+
+    if segmentLengthSquared > 0.001 then
+        segmentPosition = math.clamp(
+            (
+                (mouseLocation.X - pointA.X) * segmentX
+                + (mouseLocation.Y - pointA.Y) * segmentY
+            ) / segmentLengthSquared,
+            0,
+            1
+        )
+    end
+
+    local closestX = pointA.X + segmentX * segmentPosition
+    local closestY = pointA.Y + segmentY * segmentPosition
+    local offsetX = mouseLocation.X - closestX
+    local offsetY = mouseLocation.Y - closestY
+
+    return offsetX * offsetX + offsetY * offsetY, true
+end
+
+function VisualRuntime.FindSingleCursorCandidate(validCharacters)
+    local cursorRadius = math.clamp(
+        tonumber(_G.FFTMSingleTargetCursorRadius) or 85,
+        20,
+        250
+    )
+    local bestDistanceSquared = cursorRadius * cursorRadius
+    local bestCandidate = nil
+
+    for _, candidate in ipairs(validCharacters) do
+        if candidate.OnScreen
+            and candidate.CursorDistanceSquared <= bestDistanceSquared then
+
+            if candidate.CursorDistanceSquared < bestDistanceSquared
+                or bestCandidate == nil
+                or candidate.Distance < bestCandidate.Distance then
+
+                bestDistanceSquared = candidate.CursorDistanceSquared
+                bestCandidate = candidate
+            end
+        end
+    end
+
+    return bestCandidate and bestCandidate.Character or nil
+end
+
+function CycleEvent(manualCycle, singleTargetOnly)
     local allCharacters = GetAllCharactersInFolder()
 
     if not SelectedFolder or not allCharacters then
-        UpdateTargetCharacters({})
+        if not singleTargetOnly then
+            UpdateTargetCharacters({})
+        end
         return
     end
 
@@ -3844,19 +3931,12 @@ function CycleEvent(manualCycle)
                 }
 
                 if mouseLocation then
-                    local projectionOk, screenPosition, onScreen = pcall(function()
-                        return WorldToScreen(targetRoot.Position)
-                    end)
-
-                    if projectionOk and onScreen and screenPosition then
-                        local cursorOffsetX = screenPosition.X - mouseLocation.X
-                        local cursorOffsetY = screenPosition.Y - mouseLocation.Y
-
-                        candidate.OnScreen = true
-                        candidate.CursorDistanceSquared =
-                            cursorOffsetX * cursorOffsetX
-                            + cursorOffsetY * cursorOffsetY
-                    end
+                    candidate.CursorDistanceSquared, candidate.OnScreen =
+                        VisualRuntime.GetCharacterCursorDistanceSquared(
+                            char,
+                            targetRoot,
+                            mouseLocation
+                        )
                 end
 
                 table.insert(validCharacters, candidate)
@@ -3865,8 +3945,10 @@ function CycleEvent(manualCycle)
     end
 
     if #validCharacters == 0 then
-        CurrentIndex = 0
-        UpdateTargetCharacters({})
+        if not singleTargetOnly then
+            CurrentIndex = 0
+            UpdateTargetCharacters({})
+        end
 
         if manualCycle then
             Notify(
@@ -3878,6 +3960,32 @@ function CycleEvent(manualCycle)
             )
         end
 
+        return
+    end
+
+    if manualCycle and singleTargetOnly then
+        local selectedCharacter =
+            VisualRuntime.FindSingleCursorCandidate(validCharacters)
+
+        if not selectedCharacter then
+            Notify(
+                "Target",
+                "No target under cursor",
+                2
+            )
+            return
+        end
+
+        CurrentIndex = 1
+        UpdateTargetCharacters({ selectedCharacter })
+
+        Notify(
+            "Target",
+            "Selected "
+                .. GetCharacterDisplayName(selectedCharacter)
+                .. " [single cursor]",
+            2
+        )
         return
     end
 
@@ -4189,6 +4297,10 @@ local function TriggerManualCycle()
     CycleEvent(true)
 end
 
+local function TriggerSingleCursorTarget()
+    CycleEvent(true, true)
+end
+
 RegisterActionKeybind(
     "menu_toggle",
     "Open / Close Menu",
@@ -4201,6 +4313,13 @@ RegisterActionKeybind(
     "Select Cursor Target",
     nil,
     TriggerManualCycle
+)
+
+RegisterActionKeybind(
+    "select_single_target",
+    "Select Single Target",
+    nil,
+    TriggerSingleCursorTarget
 )
 
 RegisterToggleKeybind("auto_parry", "Auto Parry", "AutoParry",
@@ -4280,6 +4399,7 @@ local function AddKeybindControl(spec)
     local targetTab = KeybindsTab
 
     if spec.Id == "cycle_target"
+        or spec.Id == "select_single_target"
         or spec.Id == "auto_target_nearest"
         or spec.Id == "multiple_targets"
         or spec.Id == "include_local_character"
@@ -4308,6 +4428,8 @@ local function AddKeybindControl(spec)
             and "Key used to minimize or restore the menu. Press Delete to clear it."
             or spec.Id == "cycle_target"
             and "Selects the in-range character nearest your cursor, or up to three when Multiple Targets is enabled. Press Delete to clear it."
+            or spec.Id == "select_single_target"
+            and "Replaces all targets with the one character under your cursor. Press Delete to clear it."
             or "Pressing this key toggles the matching feature. Press Delete to clear it.",
         Default = spec.KeyName,
         Mode = "Toggle",
@@ -4962,6 +5084,15 @@ function SetupTargetFolderUI()
         Callback = function()
             print("[Target] UI cycle button pressed")
             CycleEvent(true)
+        end
+    })
+
+    SafeAddButton(TargetingTab, {
+        Title = "Select Single Cursor Target Now",
+        Description = "Replaces the current target list with one character under your cursor, even when Multiple Targets is enabled.",
+
+        Callback = function()
+            TriggerSingleCursorTarget()
         end
     })
 

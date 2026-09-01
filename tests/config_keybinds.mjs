@@ -53,7 +53,7 @@ ${extract('        function tab:AddKeybind(control)', '\n        function tab:Ad
 ${extract('local function SetKeybind(', '\nlocal function AddKeybindControl(')}
 ${extract('local function CaptureKeybindConfig()', '\nfunction SetupPresetConfigUI()')}
 
-for id, initial in pairs({menu_toggle = 'M', cycle_target = 'None', esp = 'Q', animation_id_esp = 'None'}) do
+for id, initial in pairs({menu_toggle = 'M', cycle_target = 'None', select_single_target = 'None', esp = 'Q', animation_id_esp = 'None'}) do
     local spec = { Id = id }
     SetKeybind(spec, initial)
     table.insert(KeybindSpecs, spec)
@@ -95,15 +95,18 @@ end
 local function reset()
     KeybindControls.menu_toggle:SetValue('P')
     KeybindControls.cycle_target:SetValue('X')
+    KeybindControls.select_single_target:SetValue('Z')
     KeybindControls.esp:SetValue('Q')
 end
 local function preserved()
     expect('menu_toggle', 'p')
     expect('cycle_target', 'x')
+    expect('select_single_target', 'z')
 end
 
 expect('menu_toggle', 'M')
 expect('cycle_target', nil) -- No new targeting default.
+expect('select_single_target', nil)
 reset()
 load(nil)
 assert(lastNotice == 'Config 1 is empty.')
@@ -121,10 +124,12 @@ for _, value in ipairs({'', ' ', '\\t\\n', 'None', 'none', 'NONE', ' NoNe ', fal
     expect('esp', 'q')
 end
 
-load({Keybinds = {menu_toggle = ' M ', cycle_target = 'E'}})
+load({Keybinds = {menu_toggle = ' M ', cycle_target = 'E', select_single_target = 'R'}})
 expect('menu_toggle', 'm')
 expect('cycle_target', 'e')
+expect('select_single_target', 'r')
 assert(CaptureKeybindConfig().cycle_target == 'e')
+assert(CaptureKeybindConfig().select_single_target == 'r')
 load({Keybinds = {menu_toggle = 'None', cycle_target = 'C', esp = 'None'}})
 expect('menu_toggle', 'm')
 expect('cycle_target', 'c')
@@ -141,21 +146,23 @@ expect('cycle_target', 'c')
 expect('esp', 'v')
 load({Keybinds = {auto_parry_esp = 'H', unknown = 'J'}})
 expect('animation_id_esp', 'h') -- Preserve legacy ID migration.
-for _, id in ipairs({'menu_toggle', 'cycle_target'}) do
+for _, id in ipairs({'menu_toggle', 'cycle_target', 'select_single_target'}) do
     KeybindControls[id].Input('Delete')
     expect(id, nil) -- Intentional manual clearing still works.
 end
 load({Keybinds = {menu_toggle = 'None', cycle_target = 'none'}})
 expect('menu_toggle', nil)
 expect('cycle_target', nil)
-load({Keybinds = {menu_toggle = 'M', cycle_target = 'X'}})
+load({Keybinds = {menu_toggle = 'M', cycle_target = 'X', select_single_target = 'R'}})
 expect('menu_toggle', 'm')
 expect('cycle_target', 'x')
+expect('select_single_target', 'r')
 local saved = CaptureKeybindConfig()
 reset()
 load({Keybinds = saved})
 expect('menu_toggle', 'm')
 expect('cycle_target', 'x')
+expect('select_single_target', 'r')
 expect('esp', 'v')
 -- Native INS applies flags, callbacks, and attached binds in that order.
 reset()
