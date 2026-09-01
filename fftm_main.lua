@@ -1,4 +1,4 @@
--- FFTM_MAIN_BUILD = "2026-09-01-SINGLE-CURSOR-TARGET-1"
+-- FFTM_MAIN_BUILD = "2026-09-01-BASKETBALL-AUTO-GREEN-1"
 --// INS UI
 local Library = {
     Raw = (function()
@@ -537,6 +537,28 @@ local VisualRuntime = {
     EspFrame = {},
     HealthFrame = {},
     FrameId = 0,
+    AutoGreen = {
+        Enabled = false,
+        ReleaseTarget = 0.65,
+        ShootKey = 69,
+        PreviousProgress = nil,
+        Meter = nil,
+        Needle = nil,
+        LastScanAt = -1000000,
+        LastReleaseAt = -1000000,
+        LastErrorAt = -1000000,
+        ScanInterval = 0.5,
+        MinimumMovement = 0.004,
+        ReleaseCooldown = 0.15,
+        ShotCount = 0,
+        NeedleNames = {
+            "needle",
+            "sweep",
+            "fill",
+            "indicator",
+            "marker",
+        },
+    },
 }
 
 function VisualRuntime.RefreshPlayers()
@@ -1317,6 +1339,215 @@ local function NewValueControl(defaultValue)
     return control
 end
 
+function VisualRuntime.AutoGreen.Reset(releaseKey)
+    VisualRuntime.AutoGreen.PreviousProgress = nil
+    VisualRuntime.AutoGreen.Meter = nil
+    VisualRuntime.AutoGreen.Needle = nil
+    VisualRuntime.AutoGreen.LastScanAt = -1000000
+
+    if releaseKey then
+        pcall(function()
+            keyrelease(VisualRuntime.AutoGreen.ShootKey)
+        end)
+    end
+end
+
+function VisualRuntime.AutoGreen.Get()
+    return VisualRuntime.AutoGreen.Enabled == true
+end
+
+function VisualRuntime.AutoGreen.Set(value)
+    VisualRuntime.AutoGreen.Enabled = value == true
+    VisualRuntime.AutoGreen.Reset(not VisualRuntime.AutoGreen.Enabled)
+end
+
+function VisualRuntime.AutoGreen.IsAlive(instance)
+    if not instance then
+        return false
+    end
+
+    local ok, parent = pcall(function()
+        return instance.Parent
+    end)
+
+    return ok and parent ~= nil
+end
+
+function VisualRuntime.AutoGreen.FindNeedle(meter)
+    if not meter then
+        return nil
+    end
+
+    local exactOk, exactNeedle = pcall(function()
+        return meter:FindFirstChild("Needle", true)
+    end)
+
+    if exactOk and exactNeedle then
+        return exactNeedle
+    end
+
+    local descendantsOk, descendants = pcall(function()
+        return meter:GetDescendants()
+    end)
+
+    if not descendantsOk or type(descendants) ~= "table" then
+        return nil
+    end
+
+    for _, descendant in ipairs(descendants) do
+        local nameOk, name = pcall(function()
+            return string.lower(tostring(descendant.Name or ""))
+        end)
+
+        if nameOk then
+            for _, keyword in ipairs(VisualRuntime.AutoGreen.NeedleNames) do
+                if string.find(name, keyword, 1, true) then
+                    local sizeOk, size = pcall(function()
+                        return descendant.AbsoluteSize
+                    end)
+
+                    if sizeOk and size then
+                        return descendant
+                    end
+                end
+            end
+        end
+    end
+
+    return nil
+end
+
+function VisualRuntime.AutoGreen.FindMeter()
+    local playersFolder = workspace:FindFirstChild("Players")
+    local playerModel = playersFolder
+        and playersFolder:FindFirstChild(LocalPlayer.Name)
+
+    if not playerModel then
+        return nil
+    end
+
+    local barOk, meterBar = pcall(function()
+        return playerModel:FindFirstChild(
+            "BasketballShotMeterBar",
+            true
+        )
+    end)
+
+    if barOk and meterBar then
+        local trackOk, track = pcall(function()
+            return meterBar:FindFirstChild("Track")
+        end)
+
+        if trackOk and track then
+            return track
+        end
+    end
+
+    -- Older game builds used the billboard hierarchy instead of the named
+    -- meter bar. Keep this narrow fallback so scans stay cheap.
+    local root = playerModel:FindFirstChild("HumanoidRootPart")
+    local attach = root
+        and root:FindFirstChild("BasketballShotMeterAttach")
+    local billboard = attach
+        and attach:FindFirstChild("BasketballShotBillboard")
+    local billboardRoot = billboard
+        and billboard:FindFirstChild("Root")
+
+    return billboardRoot and billboardRoot:FindFirstChild("Meter") or nil
+end
+
+function VisualRuntime.AutoGreen.GetProgress(meter, needle)
+    if not meter or not needle then
+        return nil
+    end
+
+    local ok, needleSize, meterSize = pcall(function()
+        return needle.AbsoluteSize, meter.AbsoluteSize
+    end)
+
+    if not ok or not needleSize or not meterSize or meterSize.Y <= 0 then
+        return nil
+    end
+
+    return math.clamp(needleSize.Y / meterSize.Y, 0, 1)
+end
+
+function VisualRuntime.AutoGreen.Tick(now)
+    if not VisualRuntime.AutoGreen.Enabled then
+        return
+    end
+
+    if not VisualRuntime.AutoGreen.IsAlive(VisualRuntime.AutoGreen.Meter) then
+        VisualRuntime.AutoGreen.Meter = nil
+        VisualRuntime.AutoGreen.Needle = nil
+        VisualRuntime.AutoGreen.PreviousProgress = nil
+    end
+
+    if not VisualRuntime.AutoGreen.Meter
+        and now - VisualRuntime.AutoGreen.LastScanAt
+            >= VisualRuntime.AutoGreen.ScanInterval then
+
+        VisualRuntime.AutoGreen.LastScanAt = now
+        VisualRuntime.AutoGreen.Meter =
+            VisualRuntime.AutoGreen.FindMeter()
+    end
+
+    if not VisualRuntime.AutoGreen.Meter then
+        return
+    end
+
+    if not VisualRuntime.AutoGreen.IsAlive(VisualRuntime.AutoGreen.Needle) then
+        VisualRuntime.AutoGreen.Needle =
+            VisualRuntime.AutoGreen.FindNeedle(
+                VisualRuntime.AutoGreen.Meter
+            )
+        VisualRuntime.AutoGreen.PreviousProgress = nil
+    end
+
+    local progress = VisualRuntime.AutoGreen.GetProgress(
+        VisualRuntime.AutoGreen.Meter,
+        VisualRuntime.AutoGreen.Needle
+    )
+
+    if not progress then
+        return
+    end
+
+    local previous = VisualRuntime.AutoGreen.PreviousProgress
+    VisualRuntime.AutoGreen.PreviousProgress = progress
+
+    if previous == nil then
+        return
+    end
+
+    local target = VisualRuntime.AutoGreen.ReleaseTarget
+    local movement = progress - previous
+    local crossedUp = previous < target
+        and progress >= target
+        and movement >= VisualRuntime.AutoGreen.MinimumMovement
+    local crossedDown = previous > target
+        and progress <= target
+        and movement <= -VisualRuntime.AutoGreen.MinimumMovement
+
+    if not crossedUp and not crossedDown then
+        return
+    end
+
+    if now - VisualRuntime.AutoGreen.LastReleaseAt
+        <= VisualRuntime.AutoGreen.ReleaseCooldown then
+
+        return
+    end
+
+    VisualRuntime.AutoGreen.LastReleaseAt = now
+    VisualRuntime.AutoGreen.ShotCount =
+        VisualRuntime.AutoGreen.ShotCount + 1
+
+    pcall(function()
+        keyrelease(VisualRuntime.AutoGreen.ShootKey)
+    end)
+end
+
 VisualRuntime.AutoParryStatus = Drawing.new("Text")
 VisualRuntime.AutoParryStatus.Size = 18
 VisualRuntime.AutoParryStatus.Center = true
@@ -1462,6 +1693,10 @@ local AutoParryTab   = SafeAddTab("Auto Parry", "swords")
 local TargetingTab   = SafeAddTab("Targeting", "crosshair")
 local ParryConfigTab = SafeAddTab("Parry Config", "settings")
 
+Library.Raw:Category("BASKETBALL")
+
+VisualRuntime.AutoGreen.Tab = SafeAddTab("Basketball", "target")
+
 Library.Raw:Category("SETTINGS")
 
 local ConfigTab   = SafeAddTab("Config", "settings")
@@ -1511,6 +1746,21 @@ KeybindsTab.Combat = KeybindsTab:AddSection("Combat", "Right", "Combat automatio
 KeybindsTab.Targeting = KeybindsTab:AddSection("Targeting", "Left", "Target selection shortcuts.")
 KeybindsTab.Parry = KeybindsTab:AddSection("Parry Config", "Right", "Timing modifier shortcuts.")
 KeybindsTab.Visuals = KeybindsTab:AddSection("Visuals", "Left", "ESP and health-overlay shortcuts.")
+KeybindsTab.Basketball = KeybindsTab:AddSection(
+    "Basketball",
+    "Right",
+    "Basketball release-assist shortcuts."
+)
+
+VisualRuntime.AutoGreen.Tab.Section.Name = "Release Assist"
+VisualRuntime.AutoGreen.Tab.Section.Side = "Left"
+VisualRuntime.AutoGreen.Tab.Section.Desc =
+    "Releases E when the shot meter crosses the selected percentage."
+VisualRuntime.AutoGreen.Tab.Guide = VisualRuntime.AutoGreen.Tab:AddSection(
+    "How It Works",
+    "Right",
+    "Hold E normally; FFTM only handles the release."
+)
 
 -- Split Parry Config into INS cards like the reference layout. These are
 -- presentation-only proxies; every control keeps its original callback and
@@ -1796,6 +2046,43 @@ UIToggles.AnimationIdESP = SafeAddToggle(AutoParryTab.Extras, {
     Default = true,
     Callback = function(value)
         VisualRuntime.SetAnimationIdEspEnabled(value)
+    end
+})
+
+UIToggles.AutoGreen = SafeAddToggle(VisualRuntime.AutoGreen.Tab, {
+    Id = "auto_green",
+    Title = "Auto Green",
+    Description = "Hold E normally. FFTM releases it when the basketball shot meter crosses the selected target.",
+    Default = false,
+    Callback = function(value)
+        VisualRuntime.AutoGreen.Set(value)
+    end
+})
+
+VisualRuntime.AutoGreen.ReleaseSlider = SafeAddSlider(
+    VisualRuntime.AutoGreen.Tab,
+    {
+        Id = "auto_green_release_target",
+        Title = "Release Target",
+        Description = "Shot-meter percentage used for release. Start at 65% and fine-tune it for your height and latency.",
+        Min = 10,
+        Max = 90,
+        Step = 0.1,
+        Suffix = "%",
+        Default = 65,
+        Callback = function(value)
+            VisualRuntime.AutoGreen.ReleaseTarget =
+                math.clamp(value, 10, 90) / 100
+        end
+    }
+)
+
+SafeAddButton(VisualRuntime.AutoGreen.Tab.Guide, {
+    Title = "Reset Release Target",
+    Description = "Restores the recommended starting point of 65%.",
+    Callback = function()
+        VisualRuntime.AutoGreen.ReleaseTarget = 0.65
+        VisualRuntime.AutoGreen.ReleaseSlider:SetValue(65)
     end
 })
 
@@ -4332,6 +4619,8 @@ RegisterToggleKeybind("auto_ali_counter", "Auto Ali Counter", "AutoAliCounter",
     AutoAliCounterToggle.Get, AutoAliCounterToggle.Set)
 RegisterToggleKeybind("auto_play", "Auto Play", "AutoPlay",
     AutoPlayToggle.Get, AutoPlayToggle.Set)
+RegisterToggleKeybind("auto_green", "Auto Green", "AutoGreen",
+    VisualRuntime.AutoGreen.Get, VisualRuntime.AutoGreen.Set)
 RegisterToggleKeybind("parry_debug", "Debug Parry", "ParryDebug",
     ParryDebugToggle.Get, ParryDebugToggle.Set)
 RegisterToggleKeybind("parry_status", "Parry Status", "ParryStatus",
@@ -4398,7 +4687,9 @@ end
 local function AddKeybindControl(spec)
     local targetTab = KeybindsTab
 
-    if spec.Id == "cycle_target"
+    if spec.Id == "auto_green" then
+        targetTab = KeybindsTab.Basketball
+    elseif spec.Id == "cycle_target"
         or spec.Id == "select_single_target"
         or spec.Id == "auto_target_nearest"
         or spec.Id == "multiple_targets"
@@ -4430,6 +4721,8 @@ local function AddKeybindControl(spec)
             and "Selects the in-range character nearest your cursor, or up to three when Multiple Targets is enabled. Press Delete to clear it."
             or spec.Id == "select_single_target"
             and "Replaces all targets with the one character under your cursor. Press Delete to clear it."
+            or spec.Id == "auto_green"
+            and "Toggles basketball release assist. Hold E normally after enabling it. Press Delete to clear this bind."
             or "Pressing this key toggles the matching feature. Press Delete to clear it.",
         Default = spec.KeyName,
         Mode = "Toggle",
@@ -4780,6 +5073,12 @@ function SetupPresetConfigUI()
                 ParryWindow = ParryWindow,
             },
 
+            Basketball = {
+                AutoGreen = VisualRuntime.AutoGreen.Get(),
+                ReleaseTarget =
+                    VisualRuntime.AutoGreen.ReleaseTarget * 100,
+            },
+
             Keybinds = CaptureKeybindConfig(),
             AnimationTimings = CopyAnimationTimings(),
             Whitelist = CopyWhitelist(),
@@ -4944,6 +5243,29 @@ function SetupPresetConfigUI()
             if type(combat.ParryWindow) == "number" then
                 ParryWindow = combat.ParryWindow
                 SyncUIControl(ParryWindowSlider, math.floor(ParryWindow * 1000 + 0.5))
+            end
+        end
+
+        local basketball = config.Basketball
+
+        if type(basketball) == "table" then
+            ApplyToggleControl(
+                "AutoGreen",
+                basketball.AutoGreen,
+                VisualRuntime.AutoGreen.Set
+            )
+
+            if type(basketball.ReleaseTarget) == "number" then
+                local target = math.clamp(
+                    basketball.ReleaseTarget,
+                    10,
+                    90
+                )
+                VisualRuntime.AutoGreen.ReleaseTarget = target / 100
+                SyncUIControl(
+                    VisualRuntime.AutoGreen.ReleaseSlider,
+                    target
+                )
             end
         end
 
@@ -5300,6 +5622,32 @@ FFTMStartBackgroundPolling()
 
 RunService.RenderStepped:Connect(MainLoop)
 --RunService.Heartbeat:Connect(MainLoop)
+
+-- Basketball release assist is isolated from MainLoop so a meter/UI change
+-- cannot delay or disable Auto Parry.
+RunService.RenderStepped:Connect(function()
+    if not FFTM_RUNNING or not VisualRuntime.AutoGreen.Enabled then
+        return
+    end
+
+    if type(isrbxactive) == "function" and not isrbxactive() then
+        return
+    end
+
+    local now = os.clock()
+    local ok, err = pcall(VisualRuntime.AutoGreen.Tick, now)
+
+    if not ok then
+        VisualRuntime.AutoGreen.Meter = nil
+        VisualRuntime.AutoGreen.Needle = nil
+        VisualRuntime.AutoGreen.PreviousProgress = nil
+
+        if now - VisualRuntime.AutoGreen.LastErrorAt >= 5 then
+            VisualRuntime.AutoGreen.LastErrorAt = now
+            warn("[Auto Green] Recovered from: " .. tostring(err))
+        end
+    end
+end)
 
 -- Base visuals do not need to perform projection and Drawing work at the
 -- monitor's full refresh rate. Auto Parry keeps its original loop above.
