@@ -116,11 +116,11 @@ local GameConfig = {
         },
         ["rbxassetid://128315752013166"] = {
             DisplayName = "M2",
-            ReactionTime = 0.27,
+            ReactionTime = 0.2,
         },
         ["rbxassetid://70642098724811"] = {
             DisplayName = "M2Right",
-            ReactionTime = 0.27,
+            ReactionTime = 0.2,
         },
     },
     ["BasicAnims"] = {
