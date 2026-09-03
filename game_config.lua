@@ -473,6 +473,28 @@ local GameConfig = {
             ReactionTime = 0.24
         },
     },
+	["Taekkyon"] = {
+        ["rbxassetid://0"] = {
+            DisplayName = "M2",
+            ["ReactionTime"] = 0.25,
+        },
+        ["rbxassetid://0"] = {
+            DisplayName = "1stM1",
+            ReactionTime = 0.1
+        },
+        ["rbxassetid://0"] = {
+            DisplayName = "2ndM1",
+            ReactionTime = 0.1
+        },
+        ["rbxassetid://0"] = {
+            DisplayName = "3rdM1",
+            ReactionTime = 0.14
+        },
+        ["rbxassetid://0"] = {
+            DisplayName = "4thM1",
+            ReactionTime = 0.24
+        },
+    },
     ["Debug"] = {
         ["http://www.roblox.com/asset/?id=125750702"] = {
             DisplayName = "M1",
@@ -480,5 +502,4 @@ local GameConfig = {
         },
     },
 }
-
 return GameConfig
