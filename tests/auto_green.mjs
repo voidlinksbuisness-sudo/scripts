@@ -22,6 +22,23 @@ for (const required of [
   if (!main.includes(required)) throw new Error(`Missing Auto Green behavior: ${required}`);
 }
 
+const basketballTabIndex = main.indexOf(
+  'VisualRuntime.AutoGreen.Tab = SafeAddTab("Basketball", "target")'
+);
+const autoParryTabIndex = main.indexOf(
+  'local AutoParryTab   = SafeAddTab("Auto Parry", "swords")'
+);
+
+if (basketballTabIndex < 0 || autoParryTabIndex < 0 || basketballTabIndex > autoParryTabIndex) {
+  throw new Error(
+    'Basketball must stay before the Combat tabs so it remains visible in the non-scrolling INS navigation rail'
+  );
+}
+
+if (!main.includes('VisualRuntime.AutoGreen.Tab.Guide = VisualRuntime.AutoGreen.Tab:AddSection(')) {
+  throw new Error("Basketball setup controls must use the tab's dedicated guide section");
+}
+
 if (!main.includes('ShootKey = 69')) {
   throw new Error('Auto Green must release E and must never press it for the user');
 }

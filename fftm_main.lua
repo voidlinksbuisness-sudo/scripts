@@ -1,4 +1,4 @@
--- FFTM_MAIN_BUILD = "2026-09-01-BASKETBALL-AUTO-GREEN-1"
+-- FFTM_MAIN_BUILD = "2026-09-01-BASKETBALL-TAB-VISIBILITY-1"
 --// INS UI
 local Library = {
     Raw = (function()
@@ -1687,20 +1687,33 @@ local function SafeAddButton(tab, config)
     return SafeControl(tab, "AddButton", config)
 end
 
+-- Keep Basketball directly after Main. INS does not scroll its navigation
+-- rail, so placing this after the full Combat group can hide it when the
+-- window is short or has been resized vertically.
+Library.Raw:Category("BASKETBALL")
+
+VisualRuntime.AutoGreen.Tab = SafeAddTab("Basketball", "target")
+
 Library.Raw:Category("COMBAT")
 
 local AutoParryTab   = SafeAddTab("Auto Parry", "swords")
 local TargetingTab   = SafeAddTab("Targeting", "crosshair")
 local ParryConfigTab = SafeAddTab("Parry Config", "settings")
 
-Library.Raw:Category("BASKETBALL")
-
-VisualRuntime.AutoGreen.Tab = SafeAddTab("Basketball", "target")
-
 Library.Raw:Category("SETTINGS")
 
 local ConfigTab   = SafeAddTab("Config", "settings")
 local KeybindsTab = SafeAddTab("Keybinds", "keyboard")
+
+VisualRuntime.AutoGreen.Tab.Section.Name = "Release Assist"
+VisualRuntime.AutoGreen.Tab.Section.Side = "Left"
+VisualRuntime.AutoGreen.Tab.Section.Desc =
+    "Automatic E release based on the live basketball shot meter."
+VisualRuntime.AutoGreen.Tab.Guide = VisualRuntime.AutoGreen.Tab:AddSection(
+    "Setup & Timing",
+    "Right",
+    "Release-target tuning and quick reset controls."
+)
 
 AutoParryTab.Section.Name = "Combat Automation"
 AutoParryTab.Section.Side = "Left"
