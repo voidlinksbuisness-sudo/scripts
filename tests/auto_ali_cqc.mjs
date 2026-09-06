@@ -7,13 +7,13 @@ import { spawnSync } from 'node:child_process';
 const main = readFileSync(new URL('../fftm_main.lua', import.meta.url), 'utf8');
 const config = readFileSync(new URL('../game_config.lua', import.meta.url), 'utf8');
 
-const cqcStart = config.indexOf('["CQC"] = {');
+const cqcStart = config.indexOf('["CQCAnims"] = {');
 const cqcEnd = config.indexOf('["Debug"] = {', cqcStart);
 if (cqcStart < 0 || cqcEnd < 0) throw new Error('CQC config section is missing');
 const cqc = config.slice(cqcStart, cqcEnd);
 
 for (const required of [
-  '["rbxassetid://72310116631906"] = {',
+  '["rbxassetid://136636440521127"] = {',
   'DisplayName = "M2"',
   'PreserveHeavyLogic = true',
   'ParryFunction = function(data)',
@@ -46,14 +46,14 @@ VisualRuntime = {}
 ${helpers}
 
 local cqcM2 = {
-    Style = "CQC",
+    Style = "CQCAnims",
     DisplayName = "M2",
     PreserveHeavyLogic = true,
     ParryFunction = function() end,
 }
 local boxingM2 = { Style = "BoxingAnims", DisplayName = "M2" }
 local aliM2 = { Style = "AliAnims", DisplayName = "M2" }
-local normalM1 = { Style = "CQC", DisplayName = "1stM1" }
+local normalM1 = { Style = "CQCAnims", DisplayName = "1stM1" }
 
 assert(VisualRuntime.IsHeavyAttack(cqcM2), "CQC M2 must remain classified as heavy")
 assert(not VisualRuntime.ShouldAutoAliCounter(cqcM2), "Auto Ali must not claim CQC M2")
