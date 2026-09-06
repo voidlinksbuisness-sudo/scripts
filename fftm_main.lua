@@ -1597,10 +1597,7 @@ end
 
 local IncludeLocalCharacter = false
 
--- Legacy logger refresh hook. The INS UI version updated text labels here;
--- the Wabi merge keeps the data/cache behavior without those old labels.
-local function UpdateClipboardSection()
-end
+VisualRuntime.AnimationLogger = {}
 
 local AutoParryToggle      = NewValueControl(true)
 local AutoDodgeToggle      = NewValueControl(true)
@@ -2188,6 +2185,26 @@ local IgnoreIds = {
 
 --IgnoreIds = {}
 
+local function UpdateClipboardSection()
+    local loggedCount = 0
+
+    for _ in pairs(AnimationsLoggedCache) do
+        loggedCount += 1
+    end
+
+    if VisualRuntime.AnimationLogger.LoggedLabel then
+        VisualRuntime.AnimationLogger.LoggedLabel:SetText(
+            "Logged IDs: " .. tostring(loggedCount)
+        )
+    end
+
+    if VisualRuntime.AnimationLogger.IgnoredLabel then
+        VisualRuntime.AnimationLogger.IgnoredLabel:SetText(
+            "Ignored IDs: " .. tostring(#IgnoreIds)
+        )
+    end
+end
+
 
 local ParriedAnimation = {"rbxassetid://100773926241456", "rbxassetid://102823909334302", "rbxassetid://96304721384743", "rbxassetid://82979105739696", "rbxassetid://96600699015093",
 "rbxassetid://138519505081692",
@@ -2314,6 +2331,50 @@ local function SetClipboardIgnoreList()
 
     print(string.format("[Clipboard] Copied %d NEW IDs! (Total historical ignored count is now: %d)", #newlyAddedIds, #IgnoreIds))
 end
+
+ParryConfigTab.AnimationLogger = ParryConfigTab:AddSection(
+    "Animation Logger",
+    "Right",
+    "Collects unknown animations while selected targets are active."
+)
+
+VisualRuntime.AnimationLogger.LoggedLabel =
+    ParryConfigTab.AnimationLogger.Section:Label("Logged IDs: 0")
+VisualRuntime.AnimationLogger.IgnoredLabel =
+    ParryConfigTab.AnimationLogger.Section:Label(
+        "Ignored IDs: " .. tostring(#IgnoreIds)
+    )
+
+SafeAddButton(ParryConfigTab.AnimationLogger, {
+    Title = "Add Unknowns to Ignore",
+    Description = "Adds every logged unknown animation to the ignore list and copies the IDs.",
+    Callback = function()
+        SetClipboardIgnoreList()
+        AnimationsLoggedCache = {}
+        AnimationsLoggedOrder = {}
+        UpdateClipboardSection()
+    end
+})
+
+SafeAddButton(ParryConfigTab.AnimationLogger, {
+    Title = "Copy Logged IDs",
+    Description = "Copies all currently logged unknown animation IDs.",
+    Callback = function()
+        SetClipboardLoggedCache()
+    end
+})
+
+SafeAddButton(ParryConfigTab.AnimationLogger, {
+    Title = "Clear Animation Cache",
+    Description = "Clears every unknown animation collected by the logger.",
+    Callback = function()
+        AnimationsLoggedCache = {}
+        AnimationsLoggedOrder = {}
+        UpdateClipboardSection()
+    end
+})
+
+UpdateClipboardSection()
 
 local function AnimationGrabber(Folder)
     local OutputLines = {"{"}
@@ -3903,10 +3964,7 @@ local function ProcessEspAndLogging()
         end
 
         VisualRuntime.ApplyAnimationIdEspVisibility(tracker)
-
-        if not VisualRuntime.AnimationIdEspEnabled then
-            continue
-        end
+        local showAnimationText = VisualRuntime.AnimationIdEspEnabled
 
         -- Fetch active animations using your AnimationTracker system
         local updateOk, activeAnimations = pcall(function()
@@ -3918,10 +3976,12 @@ local function ProcessEspAndLogging()
 
         local lines = {}
         
-        if #activeAnimations == 0 then 
-            pcall(function()
-                tracker:ChangeText("CurrentlyPlaying", "None", COLOR_WHITE)
-            end)
+        if #activeAnimations == 0 then
+            if showAnimationText then
+                pcall(function()
+                    tracker:ChangeText("CurrentlyPlaying", "None", COLOR_WHITE)
+                end)
+            end
             continue 
         end 
 
@@ -3941,19 +4001,21 @@ local function ProcessEspAndLogging()
                 LogAnimation(assetId, { Name = resolvedName, AnimationId = assetId })
             end
 
-            table.insert(lines, string.format(
-                "%s (%s) | ID: %s | Time: %.2f | Timing: %.2f %s | Speed: %.2f",
-                tostring(resolvedName),
-                poolData and poolData.Style or "???",
-                tostring(assetId),
-                anim.TimePosition or 0.00,
-                poolData and poolData.ReactionTime or DefaultReactionTime,
-                poolData and "[Logged]" or "[Unknown]",
-                anim.Speed
-            ))
+            if showAnimationText then
+                table.insert(lines, string.format(
+                    "%s (%s) | ID: %s | Time: %.2f | Timing: %.2f %s | Speed: %.2f",
+                    tostring(resolvedName),
+                    poolData and poolData.Style or "???",
+                    tostring(assetId),
+                    anim.TimePosition or 0.00,
+                    poolData and poolData.ReactionTime or DefaultReactionTime,
+                    poolData and "[Logged]" or "[Unknown]",
+                    anim.Speed
+                ))
+            end
         end
 
-        if tracker and tracker.Name then  
+        if showAnimationText and tracker and tracker.Name then
             pcall(function()
                 tracker:ChangeText("CurrentlyPlaying", table.concat(lines, "\n"), COLOR_WHITE)
             end)
