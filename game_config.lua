@@ -428,6 +428,10 @@ local GameConfig = {
         },
         ["rbxassetid://128363063231486"] = {
             DisplayName = "M2"
+        },
+        ["rbxassetid://80822959210741"] = {
+            DisplayName = "M2",
+            ReactionTime = 0.250,
         }
     },
     ["CQCAnims"] = {
@@ -538,6 +542,120 @@ local GameConfig = {
         ["rbxassetid://101850612921423"] = {
             DisplayName = "M2",
             ReactionTime = 0.1,
+        },
+    },
+    ["PerfectCopyAnims"] = {
+        ["rbxassetid://89266206062347"] = {
+            DisplayName = "1stM1",
+            ReactionTime = 0.150,
+        },
+        ["rbxassetid://118618177788645"] = {
+            DisplayName = "2ndM1",
+            ReactionTime = 0.150,
+        },
+        ["rbxassetid://92563642848078"] = {
+            DisplayName = "3rdM1",
+            ReactionTime = 0.150,
+        },
+        ["rbxassetid://129685126037621"] = {
+            DisplayName = "4thM1",
+            ReactionTime = 0.150,
+        },
+        ["rbxassetid://84779382426562"] = {
+            DisplayName = "M2",
+            ReactionTime = 0.300,
+        },
+        ["rbxassetid://123851034848865"] = {
+            DisplayName = "M2",
+            ReactionTime = 0.300,
+        },
+    },
+    ["AikidoAnims"] = {
+        ["rbxassetid://101667835774312"] = {
+            DisplayName = "1stM1",
+            ReactionTime = 0.150,
+        },
+        ["rbxassetid://72100016327641"] = {
+            DisplayName = "2ndM1",
+            ReactionTime = 0.150,
+        },
+        ["rbxassetid://86622096544948"] = {
+            DisplayName = "3rdM1",
+            ReactionTime = 0.150,
+        },
+        ["rbxassetid://116579071175823"] = {
+            DisplayName = "4thM1",
+            ReactionTime = 0.150,
+        },
+        ["rbxassetid://113723231962801"] = {
+            DisplayName = "M2",
+            ReactionTime = 0.060,
+        },
+    },
+    ["TaijutsuAnims"] = {
+        ["rbxassetid://112772003891760"] = {
+            DisplayName = "1stM1",
+            ReactionTime = 0.150,
+        },
+        ["rbxassetid://120968355159054"] = {
+            DisplayName = "2ndM1",
+            ReactionTime = 0.150,
+        },
+        ["rbxassetid://134363734889174"] = {
+            DisplayName = "3rdM1",
+            ReactionTime = 0.150,
+        },
+        ["rbxassetid://140439623648569"] = {
+            DisplayName = "4thM1",
+            ReactionTime = 0.150,
+        },
+        ["rbxassetid://70666956463595"] = {
+            DisplayName = "M2",
+            ReactionTime = 0.300,
+        },
+    },
+    ["GiovannaAnims"] = {
+        ["rbxassetid://135716459366783"] = {
+            DisplayName = "1stM1",
+            ReactionTime = 0.150,
+        },
+        ["rbxassetid://128178940723536"] = {
+            DisplayName = "2ndM1",
+            ReactionTime = 0.150,
+        },
+        ["rbxassetid://133339208745195"] = {
+            DisplayName = "3rdM1",
+            ReactionTime = 0.150,
+        },
+        ["rbxassetid://129619149164145"] = {
+            DisplayName = "4thM1",
+            ReactionTime = 0.150,
+        },
+        ["rbxassetid://84500842912133"] = {
+            DisplayName = "M2",
+            ReactionTime = 0.300,
+        },
+    },
+    ["HikakenAnims"] = {
+        ["rbxassetid://109471728828625"] = {
+            DisplayName = "1stM1",
+            ReactionTime = 0.150,
+        },
+        ["rbxassetid://92152402802393"] = {
+            DisplayName = "2ndM1",
+            ReactionTime = 0.150,
+        },
+        ["rbxassetid://139736320509560"] = {
+            DisplayName = "3rdM1",
+            ReactionTime = 0.150,
+        },
+        ["rbxassetid://80033824766939"] = {
+            DisplayName = "4thM1",
+            ReactionTime = 0.150,
+        },
+        ["rbxassetid://94916233438251"] = {
+            DisplayName = "M2",
+            ReactionTime = 0.300,
         },
     },
     ["Debug"] = {
