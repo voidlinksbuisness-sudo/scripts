@@ -183,6 +183,11 @@ local equipEnv={
 assert(load(equipWorker,"auto equip","t",equipEnv))()
 assert(coroutine.resume(worker))
 assert(requested==0,"Auto-equip must stay paused during setup")
+equipEnv.S.raidSetupActive=false
+equipEnv.S.raidDetected=false
+assert(coroutine.resume(worker))
+assert(requested==0,"Waiting for a raid must not re-equip the weapon between attempts")
+equipEnv.S.raidSetupActive=true
 local inputCalls=0
 equipEnv.pcall=pcall
 equipEnv.setrobloxinput=function() inputCalls=inputCalls+1 end
