@@ -136,6 +136,7 @@ S = {
     raidLastIslandKey = nil,
     raidMapKey        = nil,
     raidMoveGeneration = 0,
+    raidFlightReadyAt = 0,
     lastRaidIslandCount = 0,
 }
 
@@ -2006,6 +2007,7 @@ mainTab:AddToggle("auto_raid", {
     Callback=function(v)
         S.autoRaid=v
         S.raidSetupGeneration=S.raidSetupGeneration+1
+        S.raidFlightReadyAt=0
         S.raidTweenActive=false
         S.raidDetected=false
         S.raidLastIslandNum=0
@@ -4801,6 +4803,18 @@ function S.findActiveRaidContainer()
     return nil
 end
 
+-- Hold flight and raid farming until the initial game teleport has settled.
+function S.raidTeleportReady()
+    if S.raidFlightReadyAt<=0 then return true end
+    if os.clock()<S.raidFlightReadyAt then
+        S.raidTweenActive=true
+        return false
+    end
+    S.raidFlightReadyAt=0
+    S.raidTweenActive=false
+    return true
+end
+
 task.spawn(function()
     while true do
         task.wait(0.5)
@@ -4810,6 +4824,7 @@ task.spawn(function()
             S.raidLastIslandNum=0
             S.raidLastIslandKey=nil
             S.raidMapKey=nil
+            S.raidFlightReadyAt=0
         else
             local raidContainer=S.findActiveRaidContainer()
             if not raidContainer then
@@ -4821,6 +4836,7 @@ task.spawn(function()
                 S.raidLastIslandNum=0
                 S.raidLastIslandKey=nil
                 S.raidMapKey=nil
+                S.raidFlightReadyAt=0
             else
                 S.raidDetected=true
                 local currentMapKey=trackedInstanceKey(raidContainer)
@@ -4830,9 +4846,12 @@ task.spawn(function()
                     end
                     S.raidTweenActive=false
                     S.raidMapKey=currentMapKey
+                    S.raidFlightReadyAt=os.clock()+6
                     S.raidLastIslandNum=0
                     S.raidLastIslandKey=nil
                 end
+
+                if not S.raidTeleportReady() then continue end
 
                 local highestIsland=0
                 local highestIslandModel=nil
