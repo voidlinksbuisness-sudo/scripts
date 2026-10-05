@@ -40,6 +40,16 @@ local function scenario(options)
     hrp.Position={X=0,Y=0,Z=0}
     local humanoid=object("Humanoid","Humanoid")
     local character=object("Model","Character",{HumanoidRootPart=hrp,Humanoid=humanoid})
+    if options.weapon then character.children["Sanguine Art"]=object("Tool","Sanguine Art") end
+    function humanoid:UnequipTools()
+        if options.noUnequip then error("UnequipTools unavailable") end
+        for name,tool in pairs(character.children) do
+            if tool.ClassName=="Tool" then
+                backpack.children[name]=tool
+                character.children[name]=nil
+            end
+        end
+    end
     local player=object("Player","Player",{Backpack=backpack})
     player.Character=character
     local function addChip(container)
@@ -84,7 +94,16 @@ local function scenario(options)
         end
         return true,nil,nil
     end
+    env.getCurrentlyHeldTool=function()
+        return character:FindFirstChildOfClass("Tool")
+    end
+    env.keyrelease=function() end
+    env.keypress=function(key)
+        assert(key==0x31,"Sanguine must toggle the melee slot")
+        if not options.unequipFails then character.children["Sanguine Art"]=nil end
+    end
     local function startRaid()
+        assert(not options.weapon or not character.children["Sanguine Art"],"Weapon must be put away before clicking")
         clicks=clicks+1
         backpack.children["Special Microchip"]=nil
         character.children["Special Microchip"]=nil
@@ -125,7 +144,8 @@ local r=scenario()
 assert(r.loads==1 and count(r,"RaidsNpc","Check")==1 and count(r,"RaidsNpc","Select")==1)
 assert(r.calls[3][3]=="Flame" and r.clicks==1)
 assert(scenario({chip=true}).loads==0)
-assert(#scenario({chip=true,equipped=true}).calls==0)
+r=scenario({chip=true,equipped=true})
+assert(#r.calls==0 and r.clicks==1)
 assert(#scenario({active=true}).calls==0)
 assert(#scenario({blocked=true}).calls==0)
 assert(#scenario({noButton=true}).calls==0)
@@ -143,4 +163,31 @@ assert(#r.calls<=3 and r.clicks==0 and #r.notices>0)
 assert(scenario({chip=true,mouse=true}).mouseClicks==1)
 assert(scenario({chip=true,mouse=true,unfocused=true}).mouseClicks==0)
 assert(scenario({chip=true,mouse=true,offscreen=true}).mouseClicks==0)
+assert(scenario({weapon=true,mouse=true}).mouseClicks==1)
+assert(scenario({weapon=true,mouse=true,noUnequip=true}).mouseClicks==1)
+assert(scenario({weapon=true,mouse=true,noUnequip=true,unequipFails=true}).mouseClicks==0)
+assert(scenario({weapon=true,mouse=true,noUnequip=true,unfocused=true}).mouseClicks==0)
+
+-- Check the auto-equip worker and any queued pressWeaponSlot calls during setup.
+local equipWorker=assert(source:match('(task%.spawn%(function%(%)\n    while true do\n        local farming=S%.autoFarmNearest.-\nend%))'))
+local pressSlot=assert(source:match('(function pressWeaponSlot%(slot%)\n.-\nend)'))
+local requested=0
+local worker
+local equipEnv={
+    S={autoRaid=true,raidSetupActive=true,weaponSlot=1},
+    getCurrentlyHeldTool=function() return nil end,
+    pressWeaponSlot=function() requested=requested+1 end,
+    task={spawn=function(fn) worker=coroutine.create(fn) end,
+        wait=function() coroutine.yield() end}
+}
+assert(load(equipWorker,"auto equip","t",equipEnv))()
+assert(coroutine.resume(worker))
+assert(requested==0,"Auto-equip must stay paused during setup")
+local inputCalls=0
+equipEnv.pcall=pcall
+equipEnv.setrobloxinput=function() inputCalls=inputCalls+1 end
+equipEnv.keyrelease=function() end
+equipEnv.keypress=function() inputCalls=inputCalls+1 end
+assert(load(pressSlot,"weapon slot","t",equipEnv))()
+assert(equipEnv.pressWeaponSlot(1)==false and inputCalls==0,"Queued equips must cancel")
 print("PASS: raid setup purchase, chip reuse, empty map, cancellation, priorities, retry limits, and mouse fallback")
