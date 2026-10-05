@@ -3611,17 +3611,20 @@ function getCurrentlyHeldTool()
 end
 
 function pressWeaponSlot(slot)
+    if S.raidSetupActive then return false end
     local selectedKey=(slot==3) and 0x33 or 0x31
     pcall(function()
 
         setrobloxinput(true)
         keyrelease(selectedKey)
         task.wait(0.02)
+        if S.raidSetupActive then return end
         keypress(selectedKey)
         task.wait(0.1)
         keyrelease(selectedKey)
     end)
 
+    if S.raidSetupActive then return false end
     if getCurrentlyHeldTool() then return true end
 
     local char=LocalPlayer and LocalPlayer.Character or nil
@@ -3758,7 +3761,7 @@ end)
 task.spawn(function()
     while true do
         local farming=S.autoFarmNearest or S.autoNpcFarm or S.autoFarmLevel or S.autoRaid or S.autoBossFarm or S.autoMaterialFarm or S.autoSeaEvent
-        if farming and not getCurrentlyHeldTool() then
+        if farming and not S.raidSetupActive and not getCurrentlyHeldTool() then
             local selectedSlot=S.weaponSlot
             task.spawn(function() pressWeaponSlot(selectedSlot) end)
         end
@@ -6595,6 +6598,34 @@ do
         local maxDistance=16
         pcall(function() maxDistance=tonumber(detector.MaxActivationDistance) or 16 end)
         if dx*dx+dy*dy+dz*dz>math.min(maxDistance,24)^2 then return end
+
+        -- A held weapon turns the fallback mouse click into an attack.
+        -- Auto-equip is paused by raidSetupActive throughout this operation.
+        if getCurrentlyHeldTool() then
+            pcall(function() humanoid:UnequipTools() end)
+            task.wait(0.2)
+            if not ready() or not chip() then return end
+            local held=getCurrentlyHeldTool()
+            if held then
+                if type(isrbxactive)~="function" or not isrbxactive() then
+                    notify("Focus Roblox so Auto Raid can put your weapon away.","Auto Raid",4)
+                    return
+                end
+                local slotKey=(S.weaponSlot==3) and 0x33 or 0x31
+                if held.Name=="Sanguine Art" or held.Name=="Sanguine" then slotKey=0x31 end
+                setrobloxinput(true)
+                keyrelease(slotKey)
+                keypress(slotKey)
+                task.wait(0.1)
+                keyrelease(slotKey)
+                task.wait(0.2)
+            end
+            if not ready() or not chip() then return end
+            if getCurrentlyHeldTool() then
+                notify("Weapon still equipped; put it away so Auto Raid can click the button.","Auto Raid",5)
+                return
+            end
+        end
 
         local clicked=false
         if type(fireclickdetector)=="function" then
