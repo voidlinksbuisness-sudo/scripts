@@ -53,6 +53,9 @@ S = {
     teleportKitsune = false,
     buddhaPull      = false,
     autoRaid        = false,
+    raidUseStoredSpin = true,
+    raidSetupActive = false,
+    raidSetupGeneration = 0,
     autoMastery     = false,
     customPull      = false,
     voidPull        = false,
@@ -137,7 +140,7 @@ S = {
 }
 
 function farmPriorityBlocked()
-    return S.fruitPriorityActive == true or S.autoDinoBone == true or S.autoBossFarm == true or S.autoMaterialFarm == true
+    return S.raidSetupActive == true or S.fruitPriorityActive == true or S.autoDinoBone == true or S.autoBossFarm == true or S.autoMaterialFarm == true
         or S.autoSeaEvent == true
         or S.dungeonEnabled == true
         or S.autoMirageTween == true or S.autoMirageGear == true
@@ -1998,10 +2001,11 @@ end)
 mainTab:AddSection("Games", { Column = 2 })
 
 mainTab:AddToggle("auto_raid", {
-    Text="Auto Raid", Description="Tracks each raid island, travels 100 studs above it, then farms its enemies",
+    Text="Auto Raid", Description="Buys a Flame raid chip, starts the raid, then travels above and farms each island",
     Default=false, Keybind=true, Column=2,
     Callback=function(v)
         S.autoRaid=v
+        S.raidSetupGeneration=S.raidSetupGeneration+1
         S.raidTweenActive=false
         S.raidDetected=false
         S.raidLastIslandNum=0
@@ -2009,6 +2013,16 @@ mainTab:AddToggle("auto_raid", {
         S.raidMapKey=nil
         S.raidMoveGeneration=S.raidMoveGeneration+1
         notify(v and "Auto Raid ON!" or "Auto Raid OFF!","laced.club",2)
+    end
+})
+
+mainTab:AddToggle("raid_use_stored_spin", {
+    Text="Use Stored Spin for Raids",
+    Description="Unstores only Spin fruit when a raid chip is needed; disable to buy without unstoring",
+    Default=S.raidUseStoredSpin, Column=2,
+    Callback=function(v)
+        S.raidUseStoredSpin=v
+        S.raidSetupGeneration=S.raidSetupGeneration+1
     end
 })
 
@@ -4767,6 +4781,23 @@ task.spawn(function()
     end
 end)
 
+-- An empty RaidMap can remain loaded between raids.
+function S.findActiveRaidContainer()
+    local map=game.Workspace:FindFirstChild("Map")
+    local raidMap=map and map:FindFirstChild("RaidMap")
+    local origin=game.Workspace:FindFirstChild("_WorldOrigin")
+    local locations=origin and origin:FindFirstChild("Locations")
+    for _,container in pairs({raidMap=raidMap,locations=locations}) do
+        for index=1,5 do
+            if container:FindFirstChild("RaidIsland"..tostring(index))
+                or container:FindFirstChild("Island "..tostring(index)) then
+                return container
+            end
+        end
+    end
+    return nil
+end
+
 task.spawn(function()
     while true do
         task.wait(0.5)
@@ -4777,16 +4808,7 @@ task.spawn(function()
             S.raidLastIslandKey=nil
             S.raidMapKey=nil
         else
-            local map=game.Workspace:FindFirstChild("Map")
-            local raidMap=map and map:FindFirstChild("RaidMap")
-            local origin=game.Workspace:FindFirstChild("_WorldOrigin")
-            local locations=origin and origin:FindFirstChild("Locations")
-            local raidContainer=raidMap
-            if not raidContainer and locations then
-                for index=1,5 do
-                    if locations:FindFirstChild("Island "..tostring(index)) then raidContainer=locations; break end
-                end
-            end
+            local raidContainer=S.findActiveRaidContainer()
             if not raidContainer then
                 S.raidDetected=false
                 if S.raidMapKey~=nil or S.raidTweenActive then
@@ -6457,5 +6479,173 @@ task.spawn(function()
         task.wait(0.5)
     end
 end)
+
+-- Raid setup uses the captured purchase calls and the verified Boat Castle button.
+-- Keep helpers scoped here to avoid increasing the script's top-level registers.
+do
+    local nextAttemptAt=0
+
+    local function canSetUp(generation,character)
+        return S.autoRaid and S.raidSetupGeneration==generation
+            and not S.fruitPriorityActive and not S.autoDinoBone
+            and not S.autoBossFarm and not S.autoMaterialFarm and not S.autoSeaEvent
+            and not S.dungeonEnabled and not S.autoMirageTween and not S.autoMirageGear
+            and not S.findActiveRaidContainer()
+            and (not character or LocalPlayer.Character==character)
+    end
+
+    local function findTool(names)
+        local backpack=LocalPlayer:FindFirstChild("Backpack")
+        local character=LocalPlayer.Character
+        for _,container in pairs({backpack=backpack,character=character}) do
+            for _,name in ipairs(names) do
+                local tool=container:FindFirstChild(name)
+                if tool and tool.ClassName=="Tool" then return tool end
+            end
+        end
+        return nil
+    end
+
+    local function chip()
+        return findTool({"Special Microchip"})
+    end
+
+    local function startButton()
+        local map=game.Workspace:FindFirstChild("Map")
+        local castle=map and map:FindFirstChild("Boat Castle")
+        local summon=castle and castle:FindFirstChild("RaidSummon2")
+        local button=summon and summon:FindFirstChild("Button")
+        local main=button and button:FindFirstChild("Main")
+        local detector=main and main:FindFirstChild("ClickDetector")
+        if main and detector then return main,detector end
+        return nil,nil
+    end
+
+    local function waitFor(seconds,generation,character,predicate)
+        local deadline=os.clock()+seconds
+        while canSetUp(generation,character) do
+            if predicate() then return true end
+            if os.clock()>=deadline then break end
+            task.wait(0.2)
+        end
+        return false
+    end
+
+    local function setUpRaid(generation)
+        local character=LocalPlayer.Character
+        local hrp=character and character:FindFirstChild("HumanoidRootPart")
+        local humanoid=character and character:FindFirstChildOfClass("Humanoid")
+        if not hrp or not humanoid or humanoid.Health<=0 then return end
+        local main,detector=startButton()
+        if not main then
+            notify("Raid start button not loaded at Boat Castle.","Auto Raid",4)
+            return
+        end
+        local function ready()
+            return canSetUp(generation,character) and humanoid.Health>0 and hrp.Parent~=nil
+        end
+        if not ready() then return end
+        if not chip() then
+            if S.raidUseStoredSpin and not findTool({"Spin Fruit","Spin-Spin"}) then
+                local ok,_,err=invokeEnhancedComm("LoadFruit","Spin-Spin")
+                if not ok then
+                    notify("Could not unstore Spin: "..tostring(err),"Auto Raid",5)
+                    return
+                end
+                waitFor(3,generation,character,function()
+                    return chip() or findTool({"Spin Fruit","Spin-Spin"})
+                end)
+            end
+            if not ready() then return end
+            if not chip() then
+                local ok,_,err=invokeEnhancedComm("RaidsNpc","Check")
+                if not ok then
+                    notify("Raid chip check failed: "..tostring(err),"Auto Raid",5)
+                    return
+                end
+                if not ready() then return end
+                -- Another purchase can finish while the check is in flight.
+                if not chip() then
+                    ok,_,err=invokeEnhancedComm("RaidsNpc","Select","Flame")
+                    if not ok then
+                        notify("Raid chip purchase failed: "..tostring(err),"Auto Raid",5)
+                        return
+                    end
+                end
+                if not waitFor(5,generation,character,chip) then
+                    if ready() then
+                        notify("No raid chip received; retrying in 30 seconds.","Auto Raid",5)
+                    end
+                    return
+                end
+            end
+        end
+        if not ready() or not chip() then return end
+        local position=main.Position
+        tweenTo(hrp,Vector3.new(position.X,position.Y+3,position.Z+5),S.RAID_TWEEN_SPEED,ready)
+        if not ready() or not chip() then return end
+        -- Re-resolve streamed objects after travelling.
+        main,detector=startButton()
+        if not main then return end
+        position=main.Position
+        local current=hrp.Position
+        local dx=current.X-position.X
+        local dy=current.Y-position.Y
+        local dz=current.Z-position.Z
+        local maxDistance=16
+        pcall(function() maxDistance=tonumber(detector.MaxActivationDistance) or 16 end)
+        if dx*dx+dy*dy+dz*dz>math.min(maxDistance,24)^2 then return end
+
+        local clicked=false
+        if type(fireclickdetector)=="function" then
+            clicked=pcall(function() fireclickdetector(detector) end)
+        end
+        if not clicked and type(isrbxactive)=="function" and isrbxactive() then
+            local camera=game.Workspace.CurrentCamera
+            if camera then
+                pcall(function() camera.lookAt(camera.Position,position) end)
+                task.wait(0.2)
+            end
+            if not ready() or not chip() then return end
+            local screen,onScreen=WorldToScreen(main.Position)
+            if screen and onScreen then
+                setrobloxinput(true)
+                mousemoveabs(math.floor(screen.X),math.floor(screen.Y))
+                task.wait(0.1)
+                if not ready() or not chip() or not isrbxactive() then return end
+                mouse1click()
+                clicked=true
+            end
+        end
+        if not clicked then
+            notify("Keep Roblox focused and the raid button visible for Auto Raid.","Auto Raid",5)
+            return
+        end
+        -- Wait for island detection before letting the next setup attempt run.
+        waitFor(15,generation,character,function() return false end)
+        if ready() then
+            notify("Raid has not appeared yet; retrying after the delay.","Auto Raid",4)
+        end
+    end
+
+    task.spawn(function()
+        while true do
+            local generation=S.raidSetupGeneration
+            if canSetUp(generation) and os.clock()>=nextAttemptAt then
+                S.raidSetupActive=true
+                local ok,err=pcall(function() setUpRaid(generation) end)
+                S.raidSetupActive=false
+                nextAttemptAt=os.clock()+30
+                if not ok then
+                    warn("[Auto Raid] Setup failed: "..tostring(err))
+                    notify("Raid setup failed; see the console. Retrying in 30 seconds.","Auto Raid",5)
+                end
+            elseif not S.autoRaid then
+                nextAttemptAt=0
+            end
+            task.wait(0.5)
+        end
+    end)
+end
 
 while true do task.wait(1) end
