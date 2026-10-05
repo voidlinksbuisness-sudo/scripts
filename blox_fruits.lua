@@ -6627,29 +6627,42 @@ do
             end
         end
 
-        local clicked=false
-        if type(fireclickdetector)=="function" then
-            clicked=pcall(function() fireclickdetector(detector) end)
+        -- Use real mouse input. A successful pcall on fireclickdetector does not
+        -- confirm that Matcha actually activated the detector.
+        if type(isrbxactive)~="function" or not isrbxactive() then
+            notify("Focus Roblox so Auto Raid can move the cursor to the button.","Auto Raid",5)
+            return
         end
-        if not clicked and type(isrbxactive)=="function" and isrbxactive() then
-            local camera=game.Workspace.CurrentCamera
-            if camera then
-                pcall(function() camera.lookAt(camera.Position,position) end)
-                task.wait(0.2)
-            end
-            if not ready() or not chip() then return end
+        local camera=game.Workspace.CurrentCamera
+        if camera then
+            local aimed=pcall(function() Camera.lookAt(camera.Position,main.Position) end)
+            if not aimed then pcall(function() camera.lookAt(camera.Position,main.Position) end) end
+            task.wait(0.2)
+        end
+        local clicked=false
+        local aimDeadline=os.clock()+5
+        while ready() and chip() and isrbxactive() and os.clock()<aimDeadline do
             local screen,onScreen=WorldToScreen(main.Position)
             if screen and onScreen then
                 setrobloxinput(true)
                 mousemoveabs(math.floor(screen.X),math.floor(screen.Y))
                 task.wait(0.1)
                 if not ready() or not chip() or not isrbxactive() then return end
-                mouse1click()
-                clicked=true
+                -- Re-project after the camera settles rather than clicking stale coordinates.
+                screen,onScreen=WorldToScreen(main.Position)
+                if screen and onScreen and not getCurrentlyHeldTool() then
+                    mousemoveabs(math.floor(screen.X),math.floor(screen.Y))
+                    task.wait(0.05)
+                    if not ready() or not chip() or not isrbxactive() or getCurrentlyHeldTool() then return end
+                    mouse1click()
+                    clicked=true
+                    break
+                end
             end
+            task.wait(0.1)
         end
         if not clicked then
-            notify("Keep Roblox focused and the raid button visible for Auto Raid.","Auto Raid",5)
+            notify("Raid button is off-screen or Roblox lost focus. Look at the button and close overlay menus.","Auto Raid",6)
             return
         end
         -- Wait for island detection before letting the next setup attempt run.
