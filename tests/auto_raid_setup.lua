@@ -23,6 +23,8 @@ local function scenario(options)
     local notices={}
     local clicks=0
     local mouseClicks=0
+    local mouseMoves=0
+    local directClicks=0
     local storedLoads=0
     local raidMap=object("Model","RaidMap")
     local backpack=object("Backpack","Backpack")
@@ -109,11 +111,14 @@ local function scenario(options)
         character.children["Special Microchip"]=nil
         raidMap.children.RaidIsland1=object("Model","RaidIsland1")
     end
-    if not options.mouse then env.fireclickdetector=startRaid end
+    env.fireclickdetector=function() directClicks=directClicks+1 end
     env.isrbxactive=function() return not options.unfocused end
     env.WorldToScreen=function() return {X=100,Y=100},not options.offscreen end
     env.setrobloxinput=function() end
-    env.mousemoveabs=function() end
+    env.mousemoveabs=function(x,y)
+        assert(x==100 and y==100,"Cursor must use projected button coordinates")
+        mouseMoves=mouseMoves+1
+    end
     env.mouse1click=function() mouseClicks=mouseClicks+1; startRaid() end
     assert(load(detection,"raid detection","t",env))()
     assert(load(setup,"raid setup","t",env))()
@@ -129,7 +134,8 @@ local function scenario(options)
         time=time+(delay or 0.01)
     end
     assert(not state.raidSetupActive,"Setup lock must be released")
-    return {calls=calls,clicks=clicks,mouseClicks=mouseClicks,loads=storedLoads,notices=notices}
+    assert(directClicks==0,"Direct detector calls must not bypass mouse movement")
+    return {calls=calls,clicks=clicks,mouseClicks=mouseClicks,mouseMoves=mouseMoves,loads=storedLoads,notices=notices}
 end
 
 local function count(result,command,action)
@@ -143,6 +149,7 @@ end
 local r=scenario()
 assert(r.loads==1 and count(r,"RaidsNpc","Check")==1 and count(r,"RaidsNpc","Select")==1)
 assert(r.calls[3][3]=="Flame" and r.clicks==1)
+assert(r.mouseMoves>=2 and r.mouseClicks==1)
 assert(scenario({chip=true}).loads==0)
 r=scenario({chip=true,equipped=true})
 assert(#r.calls==0 and r.clicks==1)
