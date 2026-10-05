@@ -3760,7 +3760,7 @@ end)
 
 task.spawn(function()
     while true do
-        local farming=S.autoFarmNearest or S.autoNpcFarm or S.autoFarmLevel or S.autoRaid or S.autoBossFarm or S.autoMaterialFarm or S.autoSeaEvent
+        local farming=S.autoFarmNearest or S.autoNpcFarm or S.autoFarmLevel or (S.autoRaid and S.raidDetected) or S.autoBossFarm or S.autoMaterialFarm or S.autoSeaEvent
         if farming and not S.raidSetupActive and not getCurrentlyHeldTool() then
             local selectedSlot=S.weaponSlot
             task.spawn(function() pressWeaponSlot(selectedSlot) end)
