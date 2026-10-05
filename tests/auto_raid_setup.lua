@@ -203,3 +203,21 @@ equipEnv.keypress=function() inputCalls=inputCalls+1 end
 assert(load(pressSlot,"weapon slot","t",equipEnv))()
 assert(equipEnv.pressWeaponSlot(1)==false and inputCalls==0,"Queued equips must cancel")
 print("PASS: raid setup purchase, chip reuse, empty map, cancellation, priorities, retry limits, and mouse fallback")
+
+local teleportReady=assert(source:match("(function S%.raidTeleportReady%(%)\n.-\nend)"))
+local teleportTime=0
+local teleportEnv={S={raidFlightReadyAt=6,raidTweenActive=false},
+    os={clock=function() return teleportTime end}}
+assert(load(teleportReady,"raid teleport delay","t",teleportEnv))()
+assert(not teleportEnv.S.raidTeleportReady() and teleportEnv.S.raidTweenActive)
+teleportTime=5.99
+assert(not teleportEnv.S.raidTeleportReady(),"Flight must wait the full six seconds")
+teleportTime=6
+assert(teleportEnv.S.raidTeleportReady() and not teleportEnv.S.raidTweenActive)
+assert(teleportEnv.S.raidFlightReadyAt==0)
+teleportEnv.S.raidTweenActive=true
+assert(teleportEnv.S.raidTeleportReady() and teleportEnv.S.raidTweenActive,
+    "Later island flights must not be reset or delayed again")
+assert(source:find("S.raidFlightReadyAt=os.clock()+6",1,true))
+assert(source:find("if not S.raidTeleportReady() then continue end",1,true))
+print("PASS: raid flight waits six seconds and later islands are not delayed")
